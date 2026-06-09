@@ -1,0 +1,197 @@
+# Default values for finops-platform
+replicaCount: 1
+
+image:
+  registry: ""
+  pullPolicy: IfNotPresent
+
+# API Gateway
+gateway:
+  enabled: true
+  image:
+    repository: finops/api-gateway
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8080
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: finops.local
+        paths:
+          - path: /
+            pathType: Prefix
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  env:
+    JWT_SECRET: "finops-enterprise-secret-key"
+    RATE_LIMIT_RPS: "100"
+    RATE_LIMIT_BURST: "200"
+
+# Ingestion Service
+ingestion:
+  enabled: true
+  image:
+    repository: finops/ingestion-service
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8081
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  env:
+    KAFKA_BROKERS: "kafka:9092"
+
+# Cost Analytics
+costAnalytics:
+  enabled: true
+  image:
+    repository: finops/cost-analytics
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8082
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Alert Manager
+alertManager:
+  enabled: true
+  image:
+    repository: finops/alert-manager
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8083
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# ML Services
+forecast:
+  enabled: true
+  image:
+    repository: finops/forecast-engine
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8001
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+anomaly:
+  enabled: true
+  image:
+    repository: finops/anomaly-detection
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8002
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+recommendation:
+  enabled: true
+  image:
+    repository: finops/recommendation-engine
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8003
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Frontend
+frontend:
+  enabled: true
+  image:
+    repository: finops/frontend
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: finops.local
+        paths:
+          - path: /
+            pathType: Prefix
+
+# Infrastructure
+postgresql:
+  enabled: true
+  auth:
+    username: finops
+    password: finops
+    database: finops
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+clickhouse:
+  enabled: true
+  auth:
+    username: default
+    password: ""
+  persistence:
+    enabled: true
+    size: 50Gi
+
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+kafka:
+  enabled: true
+  replicaCount: 1
+  persistence:
+    enabled: true
+    size: 10Gi
+  zookeeper:
+    enabled: true
+    persistence:
+      enabled: true
+      size: 5Gi

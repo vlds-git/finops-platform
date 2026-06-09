@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinOps Enterprise Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #e2e8f0; }
+        .sidebar { background: #1e293b; border-right: 1px solid #334155; }
+        .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; }
+        .card:hover { border-color: #475569; }
+        .nav-item { transition: all 0.2s; }
+        .nav-item:hover, .nav-item.active { background: #334155; color: #38bdf8; }
+        .kpi-card { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); }
+        .positive { color: #4ade80; }
+        .negative { color: #f87171; }
+        .warning { color: #fbbf24; }
+        .chart-container { height: 300px; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .badge { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 9999px; }
+        .badge-high { background: #7f1d1d; color: #fca5a5; }
+        .badge-medium { background: #713f12; color: #fde047; }
+        .badge-low { background: #064e3b; color: #6ee7b7; }
+        .badge-good { background: #064e3b; color: #6ee7b7; }
+        .badge-warning { background: #713f12; color: #fde047; }
+    </style>
+</head>
+<body class="h-screen flex overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="sidebar w-64 flex-shrink-0 flex flex-col">
+        <div class="p-6 border-b border-slate-700">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-sky-500 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                </div>
+                <span class="font-bold text-lg text-white">FinOps Enterprise</span>
+            </div>
+        </div>
+        <nav class="flex-1 p-4 space-y-1 overflow-y-auto scrollbar-hide">
+            <a href="#dashboard" onclick="showPage('dashboard')" class="nav-item active flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                Dashboard Executivo
+            </a>
+            <a href="#operational" onclick="showPage('operational')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                Dashboard Operacional
+            </a>
+            <a href="#forecast" onclick="showPage('forecast')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                Forecast
+            </a>
+            <a href="#anomalies" onclick="showPage('anomalies')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                Anomalias
+            </a>
+            <a href="#recommendations" onclick="showPage('recommendations')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Recomendações
+            </a>
+            <a href="#budgets" onclick="showPage('budgets')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Budgets
+            </a>
+            <a href="#alerts" onclick="showPage('alerts')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                Alertas
+            </a>
+            <a href="#users" onclick="showPage('users')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                Usuários
+            </a>
+            <a href="#multicloud" onclick="showPage('multicloud')" class="nav-item flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path></svg>
+                Multi-Cloud
+            </a>
+        </nav>
+        <div class="p-4 border-t border-slate-700">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-sky-500 flex items-center justify-center text-sm font-bold">AD</div>
+                <div>
+                    <p class="text-sm font-medium text-white">Admin User</p>
+                    <p class="text-xs text-slate-400">admin@finops.local</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+        <!-- Header -->
+        <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <h1 id="page-title" class="text-xl font-semibold text-white">Dashboard Executivo</h1>
+                <div class="flex items-center gap-2 bg-slate-700 rounded-lg px-3 py-1.5">
+                    <span class="text-xs text-slate-400">Período:</span>
+                    <select class="bg-transparent text-sm text-white outline-none">
+                        <option>Últimos 30 dias</option>
+                        <option>Últimos 90 dias</option>
+                        <option>Último ano</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2 bg-slate-700 rounded-lg px-3 py-1.5">
+                    <span class="text-xs text-slate-400">Provedor:</span>
+                    <select class="bg-transparent text-sm text-white outline-none">
+                        <option>Todos</option>
+                        <option>Huawei Cloud</option>
+                        <option>Azure</option>
+                        <option>AWS</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button class="p-2 rounded-lg hover:bg-slate-700 text-slate-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </button>
+                <button class="p-2 rounded-lg hover:bg-slate-700 text-slate-400 relative">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                    <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Content Area -->
+        <div class="flex-1 overflow-y-auto p-6">
+            <!-- Dashboard Page -->
+            <div id="page-dashboard" class="page space-y-6">
+                <!-- KPI Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="card p-5">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm text-slate-400">Custo Total (30d)</p>
+                                <p class="text-2xl font-bold text-white mt-1">R$ 185.000</p>
+                            </div>
+                            <span class="badge badge-warning">+8.2%</span>
+                        </div>
+                        <div class="h-1 bg-slate-700 rounded-full overflow-hidden">
+                            <div class="h-full bg-sky-500 w-3/4"></div>
+                        </div>
+                    </div>
+                    <div class="card p-5">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm text-slate-400">Forecast (30d)</p>
+                                <p class="text-2xl font-bold text-white mt-1">R$ 195.000</p>
+                            </div>
+                            <span class="badge badge-warning">+5.4%</span>
+                        </div>
+                        <div class="h-1 bg-slate-700 rounded-full overflow-hidden">
+                            <div class="h-full bg-purple-500 w-2/3"></div>
+                        </div>
+                    </div>
+                    <div class="card p-5">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm text-slate-400">Economia Potencial</p>
+                                <p class="text-2xl font-bold text-white mt-1">R$ 32.000</p>
+                            </div>
+                            <span class="badge badge-good">-15.3%</span>
+                        </div>
+                        <div class="h-1 bg-slate-700 rounded-full overflow-hidden">
+                            <div class="h-full bg-emerald-500 w-1/2"></div>
+                        </div>
+                    </div>
+                    <div class="card p-5">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <p class="text-sm text-slate-400">Budget Utilization</p>
+                                <p class="text-2xl font-bold text-white mt-1">72%</p>
+                            </div>
+                            <span class="badge badge-good">On Track</span>
+                        </div>
+                        <div class="h-1 bg-slate-700 rounded-full overflow-hidden">
+                            <div class="h-full bg-emerald-500 w-3/4"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Row 1 -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="card p-5">
+                        <h3 class="text-sm font-semibold text-white mb-4">Tendência de Custos</h3>
+                        <div id="chart-trend" class="chart-container"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h3 class="text-sm font-semibold text-white mb-4">Custos por Serviço</h3>
+                        <div id="chart-services" class="chart-container"></div>
+                    </div>
+                </div>
+
+                <!-- Charts Row 2 -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="card p-5">
+                        <h3 class="text-sm font-semibold text-white mb-4">Top Aplicações</h3>
+                        <div id="chart-apps" class="chart-container"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h3 class="text-sm font-semibold text-white mb-4">Custos por Provedor</h3>
+                        <div id="chart-providers" class="chart-container"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h3 class="text-sm font-semibold text-white mb-4">KPIs Estratégicos</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span class="text-slate-400">Cost Efficiency</span>
+                                    <span class="text-emerald-400">85%</span>
+                                </div>
+                                <div class="h-2 bg-slate-700 rounded-full">
+                                    <div class="h-full bg-emerald-500 rounded-full" style="width: 85%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span class="text-slate-400">Budget Health</span>
+                                    <span class="text-emerald-400">92%</span>
+                                </div>
+                                <div class="h-2 bg-slate-700 rounded-full">
+                                    <div class="h-full bg-emerald-500 rounded-full" style="width: 92%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span class="text-slate-400">Tag Coverage</span>
+                                    <span class="text-yellow-400">68%</span>
+                                </div>
+                                <div class="h-2 bg-slate-700 rounded-full">
+                                    <div class="h-full bg-yellow-500 rounded-full" style="width: 68%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span class="text-slate-400">Savings Realized</span>
+                                    <span class="text-emerald-400">78%</span>
+                                </div>
+                                <div class="h-2 bg-slate-700 rounded-full">
+                                    <div class="h-full bg-emerald-500 rounded-full" style="width: 78%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Operational Dashboard -->
+            <div id="page-operational" class="page hidden space-y-6">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="card p-5">
+                        <h3 class="text-sm font-semibold text-white mb-4">Custos por Ambiente</h3>
+                        <div id="chart-envs" class="chart-container"></div>
+                    </div>
+                    <div class="card p-5">
+                        <h3 class="text-sm font-semibold text-white mb-4">Custos por Região</h3>
+                        <div id="chart-regions" class="chart-container"></div>
+                    </div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-sm font-semibold text-white mb-4">Custos por Business Unit</h3>
+                    <div id="chart-bu" class="chart-container"></div>
+                </div>
+            </div>
+
+            <!-- Forecast Page -->
+            <div id="page-forecast" class="page hidden space-y-6">
+                <div class="flex gap-4 mb-4">
+                    <button onclick="showForecast('30d')" class="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium">30 Dias</button>
+                    <button onclick="showForecast('90d')" class="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-600">90 Dias</button>
+                    <button onclick="showForecast('12m')" class="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-600">12 Meses</button>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="card p-5 lg:col-span-2">
+                        <h3 class="text-sm font-semibold text-white mb-4">Forecast - Prophet + ARIMA + Holt-Winters</h3>
+                        <div id="chart-forecast" class="chart-container" style="height: 400px;"></div>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="card p-5">
+                            <h4 class="text-sm font-semibold text-white mb-3">Métricas do Forecast</h4>
+                            <div class="space-y-3">
+                                <div class="flex justify-between"><span class="text-slate-400">Modelo</span><span class="text-white font-medium">Ensemble</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">MAPE</span><span class="text-emerald-400">4.2%</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">RMSE</span><span class="text-white font-medium">R$ 1.240</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">Confiança</span><span class="text-emerald-400">85%</span></div>
+                            </div>
+                        </div>
+                        <div class="card p-5">
+                            <h4 class="text-sm font-semibold text-white mb-3">Previsão por Modelo</h4>
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-center"><span class="text-slate-400 text-sm">Prophet</span><span class="text-sky-400 font-medium">R$ 192.400</span></div>
+                                <div class="flex justify-between items-center"><span class="text-slate-400 text-sm">ARIMA</span><span class="text-purple-400 font-medium">R$ 198.100</span></div>
+                                <div class="flex justify-between items-center"><span class="text-slate-400 text-sm">Holt-Winters</span><span class="text-orange-400 font-medium">R$ 194.800</span></div>
+                                <div class="border-t border-slate-700 pt-2 flex justify-between items-center"><span class="text-white font-medium">Ensemble</span><span class="text-emerald-400 font-bold">R$ 195.000</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Anomalies Page -->
+            <div id="page-anomalies" class="page hidden space-y-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="card p-5 lg:col-span-2">
+                        <h3 class="text-sm font-semibold text-white mb-4">Timeline de Anomalias</h3>
+                        <div id="chart-anomalies" class="chart-container" style="height: 400px;"></div>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="card p-5">
+                            <h4 class="text-sm font-semibold text-white mb-3">Resumo</h4>
+                            <div class="space-y-3">
+                                <div class="flex justify-between"><span class="text-slate-400">Total Anomalias</span><span class="text-white font-medium">3</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">Impacto Total</span><span class="text-red-400 font-medium">R$ 12.450</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">Baseline Média</span><span class="text-white font-medium">R$ 5.200</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">Desvio Padrão</span><span class="text-white font-medium">R$ 890</span></div>
+                            </div>
+                        </div>
+                        <div class="card p-5">
+                            <h4 class="text-sm font-semibold text-white mb-3">Métodos Ativos</h4>
+                            <div class="flex gap-2 flex-wrap">
+                                <span class="badge badge-good">Isolation Forest</span>
+                                <span class="badge badge-good">Z-Score</span>
+                                <span class="badge badge-good">Rolling Average</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card overflow-hidden">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-800 text-slate-400">
+                            <tr>
+                                <th class="px-6 py-3">Data</th>
+                                <th class="px-6 py-3">Valor</th>
+                                <th class="px-6 py-3">Esperado</th>
+                                <th class="px-6 py-3">Desvio</th>
+                                <th class="px-6 py-3">Severidade</th>
+                                <th class="px-6 py-3">Método</th>
+                                <th class="px-6 py-3">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-700">
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4">2024-01-15</td>
+                                <td class="px-6 py-4 text-red-400 font-medium">R$ 12.500</td>
+                                <td class="px-6 py-4 text-slate-400">R$ 5.200</td>
+                                <td class="px-6 py-4 text-red-400">+140%</td>
+                                <td class="px-6 py-4"><span class="badge badge-high">Critical</span></td>
+                                <td class="px-6 py-4">Ensemble</td>
+                                <td class="px-6 py-4"><button class="text-sky-400 hover:text-sky-300">Investigar</button></td>
+                            </tr>
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4">2024-01-22</td>
+                                <td class="px-6 py-4 text-yellow-400 font-medium">R$ 8.900</td>
+                                <td class="px-6 py-4 text-slate-400">R$ 5.400</td>
+                                <td class="px-6 py-4 text-yellow-400">+65%</td>
+                                <td class="px-6 py-4"><span class="badge badge-medium">High</span></td>
+                                <td class="px-6 py-4">Isolation Forest</td>
+                                <td class="px-6 py-4"><button class="text-sky-400 hover:text-sky-300">Investigar</button></td>
+                            </tr>
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4">2024-02-05</td>
+                                <td class="px-6 py-4 text-yellow-400 font-medium">R$ 7.200</td>
+                                <td class="px-6 py-4 text-slate-400">R$ 5.600</td>
+                                <td class="px-6 py-4 text-yellow-400">+29%</td>
+                                <td class="px-6 py-4"><span class="badge badge-low">Medium</span></td>
+                                <td class="px-6 py-4">Z-Score</td>
+                                <td class="px-6 py-4"><button class="text-sky-400 hover:text-sky-300">Investigar</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Recommendations Page -->
+            <div id="page-recommendations" class="page hidden space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="card p-4 text-center">
+                        <p class="text-3xl font-bold text-emerald-400">R$ 32.000</p>
+                        <p class="text-sm text-slate-400 mt-1">Economia Total Potencial</p>
+                    </div>
+                    <div class="card p-4 text-center">
+                        <p class="text-3xl font-bold text-sky-400">8</p>
+                        <p class="text-sm text-slate-400 mt-1">Oportunidades</p>
+                    </div>
+                    <div class="card p-4 text-center">
+                        <p class="text-3xl font-bold text-yellow-400">3</p>
+                        <p class="text-sm text-slate-400 mt-1">Alta Prioridade</p>
+                    </div>
+                    <div class="card p-4 text-center">
+                        <p class="text-3xl font-bold text-purple-400">92%</p>
+                        <p class="text-sm text-slate-400 mt-1">Confiança Média</p>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <div class="card p-5">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="badge badge-high">Rightsizing</span>
+                                    <span class="badge badge-high">Alta Prioridade</span>
+                                </div>
+                                <h3 class="text-lg font-semibold text-white">Oversized Compute Instance</h3>
+                                <p class="text-sm text-slate-400 mt-1">VM c6.2xlarge running at 15% CPU average. Recommend downgrade to c6.large.</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-2xl font-bold text-emerald-400">R$ 175/mês</p>
+                                <p class="text-sm text-slate-400">50% economia</p>
+                            </div>
+                        </div>
+                        <div class="bg-slate-800 rounded-lg p-3 mt-3 text-sm">
+                            <p class="text-slate-300"><strong>Justificativa:</strong> CPU utilization below 20% for 30 consecutive days. Memory utilization below 40%.</p>
+                            <p class="text-slate-300 mt-1"><strong>Ação:</strong> Resize instance from c6.2xlarge to c6.large</p>
+                            <p class="text-slate-300 mt-1"><strong>Risco:</strong> Low - can be rolled back within 5 minutes</p>
+                        </div>
+                        <div class="flex gap-2 mt-3">
+                            <button class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium">Aplicar</button>
+                            <button class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium">Ignorar</button>
+                            <button class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium">Detalhes</button>
+                        </div>
+                    </div>
+                    <div class="card p-5">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="badge badge-high">Savings</span>
+                                    <span class="badge badge-high">Alta Prioridade</span>
+                                </div>
+                                <h3 class="text-lg font-semibold text-white">Reserved Instance Opportunity</h3>
+                                <p class="text-sm text-slate-400 mt-1">Stable compute workload for 6 months. RI would save 40%.</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-2xl font-bold text-emerald-400">R$ 2.000/mês</p>
+                                <p class="text-sm text-slate-400">40% economia</p>
+                            </div>
+                        </div>
+                        <div class="bg-slate-800 rounded-lg p-3 mt-3 text-sm">
+                            <p class="text-slate-300"><strong>Justificativa:</strong> Workload pattern stable (CV < 5%). No planned architecture changes.</p>
+                            <p class="text-slate-300 mt-1"><strong>Ação:</strong> Purchase 1-year All Upfront RI for c6 family</p>
+                            <p class="text-slate-300 mt-1"><strong>Risco:</strong> Low - workload is production-critical and stable</p>
+                        </div>
+                        <div class="flex gap-2 mt-3">
+                            <button class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium">Aplicar</button>
+                            <button class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium">Ignorar</button>
+                        </div>
+                    </div>
+                    <div class="card p-5">
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="badge badge-medium">Idle</span>
+                                    <span class="badge badge-medium">Média Prioridade</span>
+                                </div>
+                                <h3 class="text-lg font-semibold text-white">Idle Load Balancer</h3>
+                                <p class="text-sm text-slate-400 mt-1">ALB with zero active connections for 45 days.</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-2xl font-bold text-emerald-400">R$ 45/mês</p>
+                                <p class="text-sm text-slate-400">100% economia</p>
+                            </div>
+                        </div>
+                        <div class="bg-slate-800 rounded-lg p-3 mt-3 text-sm">
+                            <p class="text-slate-300"><strong>Justificativa:</strong> Zero requests processed. No target groups registered.</p>
+                            <p class="text-slate-300 mt-1"><strong>Ação:</strong> Delete load balancer</p>
+                            <p class="text-slate-300 mt-1"><strong>Risco:</strong> None - confirmed unused via CloudWatch metrics</p>
+                        </div>
+                        <div class="flex gap-2 mt-3">
+                            <button class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium">Aplicar</button>
+                            <button class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium">Ignorar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Budgets Page -->
+            <div id="page-budgets" class="page hidden space-y-6">
+                <div class="flex justify-between items-center">
+                    <div class="flex gap-4">
+                        <div class="card p-4">
+                            <p class="text-sm text-slate-400">Total Orçado</p>
+                            <p class="text-xl font-bold text-white">R$ 250.000</p>
+                        </div>
+                        <div class="card p-4">
+                            <p class="text-sm text-slate-400">Total Realizado</p>
+                            <p class="text-xl font-bold text-white">R$ 185.000</p>
+                        </div>
+                        <div class="card p-4">
+                            <p class="text-sm text-slate-400">Variação</p>
+                            <p class="text-xl font-bold text-emerald-400">-26%</p>
+                        </div>
+                    </div>
+                    <button class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-sm font-medium">+ Novo Budget</button>
+                </div>
+                <div class="card overflow-hidden">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-800 text-slate-400">
+                            <tr>
+                                <th class="px-6 py-3">Nome</th>
+                                <th class="px-6 py-3">Período</th>
+                                <th class="px-6 py-3">Orçado</th>
+                                <th class="px-6 py-3">Realizado</th>
+                                <th class="px-6 py-3">%</th>
+                                <th class="px-6 py-3">Status</th>
+                                <th class="px-6 py-3">Alerta</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-700">
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4 font-medium">Produção - Q1</td>
+                                <td class="px-6 py-4">Jan - Mar 2024</td>
+                                <td class="px-6 py-4">R$ 150.000</td>
+                                <td class="px-6 py-4">R$ 120.000</td>
+                                <td class="px-6 py-4">80%</td>
+                                <td class="px-6 py-4"><span class="badge badge-good">On Track</span></td>
+                                <td class="px-6 py-4">90%</td>
+                            </tr>
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4 font-medium">Desenvolvimento</td>
+                                <td class="px-6 py-4">Jan - Mar 2024</td>
+                                <td class="px-6 py-4">R$ 50.000</td>
+                                <td class="px-6 py-4">R$ 35.000</td>
+                                <td class="px-6 py-4">70%</td>
+                                <td class="px-6 py-4"><span class="badge badge-good">On Track</span></td>
+                                <td class="px-6 py-4">85%</td>
+                            </tr>
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4 font-medium">Staging</td>
+                                <td class="px-6 py-4">Jan - Mar 2024</td>
+                                <td class="px-6 py-4">R$ 30.000</td>
+                                <td class="px-6 py-4">R$ 28.000</td>
+                                <td class="px-6 py-4 text-yellow-400">93%</td>
+                                <td class="px-6 py-4"><span class="badge badge-warning">Warning</span></td>
+                                <td class="px-6 py-4">90%</td>
+                            </tr>
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4 font-medium">Disaster Recovery</td>
+                                <td class="px-6 py-4">Anual 2024</td>
+                                <td class="px-6 py-4">R$ 20.000</td>
+                                <td class="px-6 py-4">R$ 2.000</td>
+                                <td class="px-6 py-4">10%</td>
+                                <td class="px-6 py-4"><span class="badge badge-good">On Track</span></td>
+                                <td class="px-6 py-4">95%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Alerts Page -->
+            <div id="page-alerts" class="page hidden space-y-6">
+                <div class="flex justify-between items-center">
+                    <div class="flex gap-2">
+                        <button class="px-3 py-1.5 bg-sky-600 text-white rounded-lg text-sm">Todas</button>
+                        <button class="px-3 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-sm">Firing</button>
+                        <button class="px-3 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-sm">Resolved</button>
+                    </div>
+                    <button class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-sm font-medium">+ Nova Regra</button>
+                </div>
+                <div class="space-y-3">
+                    <div class="card p-4 flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                            <div>
+                                <h4 class="text-sm font-medium text-white">Budget Threshold Exceeded</h4>
+                                <p class="text-xs text-slate-400">Staging budget at 93% of limit. Threshold: 90%</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="badge badge-high">Critical</span>
+                            <span class="text-xs text-slate-400">2 min atrás</span>
+                            <button class="text-sky-400 hover:text-sky-300 text-sm">Resolver</button>
+                        </div>
+                    </div>
+                    <div class="card p-4 flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <div class="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                            <div>
+                                <h4 class="text-sm font-medium text-white">Cost Anomaly Detected</h4>
+                                <p class="text-xs text-slate-400">Compute cost spike detected: R$ 12,500 (expected: R$ 5,200)</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="badge badge-medium">High</span>
+                            <span class="text-xs text-slate-400">15 min atrás</span>
+                            <button class="text-sky-400 hover:text-sky-300 text-sm">Resolver</button>
+                        </div>
+                    </div>
+                    <div class="card p-4 flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <div class="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                            <div>
+                                <h4 class="text-sm font-medium text-white">Forecast Alert</h4>
+                                <p class="text-xs text-slate-400">30-day forecast exceeds budget by 5%</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="badge badge-low">Low</span>
+                            <span class="text-xs text-slate-400">1 hora atrás</span>
+                            <button class="text-sky-400 hover:text-sky-300 text-sm">Resolver</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users Page -->
+            <div id="page-users" class="page hidden space-y-6">
+                <div class="flex justify-between items-center">
+                    <button class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-sm font-medium">+ Novo Usuário</button>
+                </div>
+                <div class="card overflow-hidden">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-800 text-slate-400">
+                            <tr>
+                                <th class="px-6 py-3">Nome</th>
+                                <th class="px-6 py-3">Email</th>
+                                <th class="px-6 py-3">Perfil</th>
+                                <th class="px-6 py-3">Status</th>
+                                <th class="px-6 py-3">Último Acesso</th>
+                                <th class="px-6 py-3">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-700">
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4 font-medium">Admin User</td>
+                                <td class="px-6 py-4">admin@finops.local</td>
+                                <td class="px-6 py-4"><span class="badge badge-high">Admin</span></td>
+                                <td class="px-6 py-4"><span class="text-emerald-400">Ativo</span></td>
+                                <td class="px-6 py-4">Hoje, 14:30</td>
+                                <td class="px-6 py-4"><button class="text-sky-400 hover:text-sky-300">Editar</button></td>
+                            </tr>
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4 font-medium">Ana Silva</td>
+                                <td class="px-6 py-4">ana.silva@company.com</td>
+                                <td class="px-6 py-4"><span class="badge badge-medium">Analyst</span></td>
+                                <td class="px-6 py-4"><span class="text-emerald-400">Ativo</span></td>
+                                <td class="px-6 py-4">Hoje, 10:15</td>
+                                <td class="px-6 py-4"><button class="text-sky-400 hover:text-sky-300">Editar</button></td>
+                            </tr>
+                            <tr class="hover:bg-slate-800">
+                                <td class="px-6 py-4 font-medium">Carlos Mendes</td>
+                                <td class="px-6 py-4">carlos.mendes@company.com</td>
+                                <td class="px-6 py-4"><span class="badge badge-low">Viewer</span></td>
+                                <td class="px-6 py-4"><span class="text-emerald-400">Ativo</span></td>
+                                <td class="px-6 py-4">Ontem, 16:45</td>
+                                <td class="px-6 py-4"><button class="text-sky-400 hover:text-sky-300">Editar</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Multi-Cloud Page -->
+            <div id="page-multicloud" class="page hidden space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="card p-5">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-10 h-10 bg-red-600 rounded-lg flex items-center justify-center">
+                                <span class="text-white font-bold text-sm">HW</span>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-white">Huawei Cloud</h3>
+                                <p class="text-xs text-slate-400">3 contas</p>
+                            </div>
+                        </div>
+                        <p class="text-2xl font-bold text-white">R$ 85.000</p>
+                        <p class="text-sm text-slate-400">46% do total</p>
+                        <div class="mt-3 h-1 bg-slate-700 rounded-full">
+                            <div class="h-full bg-red-500 rounded-full" style="width: 46%"></div>
+                        </div>
+                    </div>
+                    <div class="card p-5">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                                <span class="text-white font-bold text-sm">AZ</span>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-white">Azure</h3>
+                                <p class="text-xs text-slate-400">2 contas</p>
+                            </div>
+                        </div>
+                        <p class="text-2xl font-bold text-white">R$ 65.000</p>
+                        <p class="text-sm text-slate-400">35% do total</p>
+                        <div class="mt-3 h-1 bg-slate-700 rounded-full">
+                            <div class="h-full bg-blue-500 rounded-full" style="width: 35%"></div>
+                        </div>
+                    </div>
+                    <div class="card p-5">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-10 h-10 bg-orange-600 rounded-lg flex items-center justify-center">
+                                <span class="text-white font-bold text-sm">AWS</span>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-white">AWS</h3>
+                                <p class="text-xs text-slate-400">4 contas</p>
+                            </div>
+                        </div>
+                        <p class="text-2xl font-bold text-white">R$ 35.000</p>
+                        <p class="text-sm text-slate-400">19% do total</p>
+                        <div class="mt-3 h-1 bg-slate-700 rounded-full">
+                            <div class="h-full bg-orange-500 rounded-full" style="width: 19%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-sm font-semibold text-white mb-4">Comparativo Multi-Cloud</h3>
+                    <div id="chart-multicloud" class="chart-container" style="height: 350px;"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Navigation
+        function showPage(page) {
+            document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+            document.getElementById('page-' + page).classList.remove('hidden');
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active', 'text-sky-400'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.add('text-slate-400'));
+            event.target.closest('a').classList.add('active', 'text-sky-400');
+            event.target.closest('a').classList.remove('text-slate-400');
+
+            const titles = {
+                'dashboard': 'Dashboard Executivo',
+                'operational': 'Dashboard Operacional',
+                'forecast': 'Forecast',
+                'anomalies': 'Anomalias',
+                'recommendations': 'Recomendações',
+                'budgets': 'Budgets',
+                'alerts': 'Alertas',
+                'users': 'Usuários',
+                'multicloud': 'Multi-Cloud'
+            };
+            document.getElementById('page-title').textContent = titles[page];
+
+            // Init charts for specific pages
+            setTimeout(() => {
+                if (page === 'dashboard') initDashboardCharts();
+                if (page === 'operational') initOperationalCharts();
+                if (page === 'forecast') initForecastChart();
+                if (page === 'anomalies') initAnomalyChart();
+                if (page === 'multicloud') initMulticloudChart();
+            }, 100);
+        }
+
+        // Chart configurations
+        const chartTheme = {
+            backgroundColor: 'transparent',
+            textStyle: { color: '#94a3b8' },
+            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+            tooltip: { backgroundColor: '#1e293b', borderColor: '#334155', textStyle: { color: '#e2e8f0' } }
+        };
+
+        function initDashboardCharts() {
+            // Trend chart
+            const trendChart = echarts.init(document.getElementById('chart-trend'));
+            const dates = Array.from({length: 30}, (_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() - 29 + i);
+                return d.toISOString().split('T')[0];
+            });
+            const costs = dates.map((_, i) => 5000 + i * 50 + Math.sin(i/5) * 500 + Math.random() * 300);
+            trendChart.setOption({
+                ...chartTheme,
+                xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                series: [{
+                    data: costs,
+                    type: 'line',
+                    smooth: true,
+                    areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color: 'rgba(56, 189, 248, 0.3)'}, {offset: 1, color: 'rgba(56, 189, 248, 0)'}] } },
+                    lineStyle: { color: '#38bdf8', width: 2 },
+                    itemStyle: { color: '#38bdf8' }
+                }]
+            });
+
+            // Services chart
+            const servicesChart = echarts.init(document.getElementById('chart-services'));
+            servicesChart.setOption({
+                ...chartTheme,
+                xAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                yAxis: { type: 'category', data: ['Network', 'Database', 'Storage', 'Compute'], axisLine: { lineStyle: { color: '#334155' } } },
+                series: [{
+                    data: [25000, 35000, 35000, 85000],
+                    type: 'bar',
+                    itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{offset: 0, color: '#38bdf8'}, {offset: 1, color: '#0ea5e9'}] } },
+                    barWidth: '60%'
+                }]
+            });
+
+            // Apps chart
+            const appsChart = echarts.init(document.getElementById('chart-apps'));
+            appsChart.setOption({
+                ...chartTheme,
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    data: [
+                        { value: 45000, name: 'ERP', itemStyle: { color: '#38bdf8' } },
+                        { value: 32000, name: 'CRM', itemStyle: { color: '#818cf8' } },
+                        { value: 28000, name: 'Data Lake', itemStyle: { color: '#c084fc' } },
+                        { value: 25000, name: 'E-commerce', itemStyle: { color: '#f472b6' } },
+                        { value: 15000, name: 'Others', itemStyle: { color: '#94a3b8' } }
+                    ],
+                    label: { color: '#e2e8f0' }
+                }]
+            });
+
+            // Providers chart
+            const providersChart = echarts.init(document.getElementById('chart-providers'));
+            providersChart.setOption({
+                ...chartTheme,
+                xAxis: { type: 'category', data: ['Huawei', 'Azure', 'AWS'], axisLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                series: [{
+                    data: [85000, 65000, 35000],
+                    type: 'bar',
+                    itemStyle: { color: (params) => ['#ef4444', '#3b82f6', '#f97316'][params.dataIndex] },
+                    barWidth: '50%'
+                }]
+            });
+        }
+
+        function initOperationalCharts() {
+            const envChart = echarts.init(document.getElementById('chart-envs'));
+            envChart.setOption({
+                ...chartTheme,
+                xAxis: { type: 'category', data: ['Production', 'Staging', 'Development', 'QA'], axisLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                series: [{
+                    data: [120000, 35000, 30000, 15000],
+                    type: 'bar',
+                    itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color: '#34d399'}, {offset: 1, color: '#059669'}] } },
+                    barWidth: '50%'
+                }]
+            });
+
+            const regionChart = echarts.init(document.getElementById('chart-regions'));
+            regionChart.setOption({
+                ...chartTheme,
+                xAxis: { type: 'category', data: ['sa-brazil-1', 'east-us-1', 'west-eu-1', 'ap-singapore-1'], axisLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                series: [{
+                    data: [95000, 90000, 45000, 20000],
+                    type: 'bar',
+                    itemStyle: { color: '#818cf8' },
+                    barWidth: '50%'
+                }]
+            });
+
+            const buChart = echarts.init(document.getElementById('chart-bu'));
+            buChart.setOption({
+                ...chartTheme,
+                xAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                yAxis: { type: 'category', data: ['HR', 'Marketing', 'IT', 'Finance', 'Sales', 'Platform'], axisLine: { lineStyle: { color: '#334155' } } },
+                series: [{
+                    data: [15000, 22000, 75000, 45000, 38000, 62000],
+                    type: 'bar',
+                    itemStyle: { color: '#c084fc' },
+                    barWidth: '60%'
+                }]
+            });
+        }
+
+        function initForecastChart() {
+            const forecastChart = echarts.init(document.getElementById('chart-forecast'));
+            const histDates = Array.from({length: 60}, (_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() - 60 + i);
+                return d.toISOString().split('T')[0];
+            });
+            const histData = histDates.map((_, i) => 5000 + i * 30 + Math.sin(i/5) * 400 + Math.random() * 200);
+
+            const forecastDates = Array.from({length: 30}, (_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() + i);
+                return d.toISOString().split('T')[0];
+            });
+            const forecastData = forecastDates.map((_, i) => 6800 + i * 25 + Math.random() * 150);
+            const upperBound = forecastData.map(v => v * 1.15);
+            const lowerBound = forecastData.map(v => v * 0.85);
+
+            forecastChart.setOption({
+                ...chartTheme,
+                legend: { data: ['Histórico', 'Forecast', 'Intervalo'], textStyle: { color: '#94a3b8' } },
+                xAxis: { type: 'category', data: [...histDates, ...forecastDates], axisLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                series: [
+                    {
+                        name: 'Histórico',
+                        data: [...histData, ...Array(30).fill(null)],
+                        type: 'line',
+                        smooth: true,
+                        lineStyle: { color: '#38bdf8', width: 2 },
+                        itemStyle: { color: '#38bdf8' }
+                    },
+                    {
+                        name: 'Forecast',
+                        data: [...Array(60).fill(null), ...forecastData],
+                        type: 'line',
+                        smooth: true,
+                        lineStyle: { color: '#a78bfa', width: 2, type: 'dashed' },
+                        itemStyle: { color: '#a78bfa' }
+                    },
+                    {
+                        name: 'Intervalo',
+                        data: [...Array(60).fill(null), ...upperBound.map((u, i) => [u, lowerBound[i]])],
+                        type: 'custom',
+                        renderItem: function(params, api) {
+                            // Simplified confidence band
+                            return null;
+                        }
+                    }
+                ]
+            });
+        }
+
+        function initAnomalyChart() {
+            const anomalyChart = echarts.init(document.getElementById('chart-anomalies'));
+            const dates = Array.from({length: 90}, (_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() - 90 + i);
+                return d.toISOString().split('T')[0];
+            });
+            const data = dates.map((_, i) => {
+                let val = 5000 + i * 20 + Math.sin(i/7) * 300 + Math.random() * 150;
+                if (i === 20 || i === 45 || i === 70) val *= 2.5;
+                return val;
+            });
+            const anomalies = data.map((v, i) => (i === 20 || i === 45 || i === 70) ? v : null);
+
+            anomalyChart.setOption({
+                ...chartTheme,
+                xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                series: [
+                    {
+                        data: data,
+                        type: 'line',
+                        smooth: true,
+                        lineStyle: { color: '#38bdf8', width: 2 },
+                        itemStyle: { color: '#38bdf8' }
+                    },
+                    {
+                        data: anomalies,
+                        type: 'scatter',
+                        symbolSize: 15,
+                        itemStyle: { color: '#ef4444' }
+                    }
+                ]
+            });
+        }
+
+        function initMulticloudChart() {
+            const mcChart = echarts.init(document.getElementById('chart-multicloud'));
+            mcChart.setOption({
+                ...chartTheme,
+                legend: { data: ['Huawei Cloud', 'Azure', 'AWS'], textStyle: { color: '#94a3b8' } },
+                xAxis: { type: 'category', data: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], axisLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', axisLine: { lineStyle: { color: '#334155' } }, splitLine: { lineStyle: { color: '#1e293b' } } },
+                series: [
+                    { name: 'Huawei Cloud', type: 'line', data: [75000, 78000, 80000, 82000, 85000, 85000], lineStyle: { color: '#ef4444' }, itemStyle: { color: '#ef4444' } },
+                    { name: 'Azure', type: 'line', data: [55000, 58000, 60000, 62000, 65000, 65000], lineStyle: { color: '#3b82f6' }, itemStyle: { color: '#3b82f6' } },
+                    { name: 'AWS', type: 'line', data: [30000, 31000, 32000, 33000, 35000, 35000], lineStyle: { color: '#f97316' }, itemStyle: { color: '#f97316' } }
+                ]
+            });
+        }
+
+        function showForecast(period) {
+            // Update buttons
+            event.target.parentElement.querySelectorAll('button').forEach(b => {
+                b.classList.remove('bg-sky-600', 'text-white');
+                b.classList.add('bg-slate-700', 'text-slate-300');
+            });
+            event.target.classList.remove('bg-slate-700', 'text-slate-300');
+            event.target.classList.add('bg-sky-600', 'text-white');
+            // Re-init chart
+            initForecastChart();
+        }
+
+        // Init on load
+        window.addEventListener('load', () => {
+            initDashboardCharts();
+        });
+
+        window.addEventListener('resize', () => {
+            echarts.getInstanceByDom(document.getElementById('chart-trend'))?.resize();
+            echarts.getInstanceByDom(document.getElementById('chart-services'))?.resize();
+            echarts.getInstanceByDom(document.getElementById('chart-apps'))?.resize();
+            echarts.getInstanceByDom(document.getElementById('chart-providers'))?.resize();
+        });
+    </script>
+</body>
+</html>

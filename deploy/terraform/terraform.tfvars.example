@@ -1,0 +1,9 @@
+# Terraform Variables
+# Copy to terraform.tfvars and fill in your values
+
+region = "sa-brazil-1"
+obs_bucket_name = "finops-focus-data-prod"
+postgres_instance_name = "finops-postgres-prod"
+redis_instance_name = "finops-redis-prod"
+vpc_id = "vpc-xxxxxxxx"
+subnet_id = "subnet-xxxxxxxx"

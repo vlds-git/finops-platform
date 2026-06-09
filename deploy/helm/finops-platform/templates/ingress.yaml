@@ -1,0 +1,29 @@
+{{- if .Values.gateway.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "finops.fullname" . }}-gateway
+  labels:
+    {{- include "finops.labels" . | nindent 4 }}
+  {{- with .Values.gateway.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.gateway.ingress.className }}
+  rules:
+    {{- range .Values.gateway.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "finops.fullname" $ }}-gateway
+                port:
+                  number: {{ $.Values.gateway.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

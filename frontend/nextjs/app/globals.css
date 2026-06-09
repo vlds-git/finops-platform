@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-200 font-sans antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-600;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-slate-850 border border-slate-700 rounded-xl;
+  }
+
+  .card-hover {
+    @apply card hover:border-slate-600 transition-colors;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply badge bg-emerald-950 text-emerald-400 border border-emerald-800;
+  }
+
+  .badge-warning {
+    @apply badge bg-amber-950 text-amber-400 border border-amber-800;
+  }
+
+  .badge-danger {
+    @apply badge bg-red-950 text-red-400 border border-red-800;
+  }
+
+  .badge-info {
+    @apply badge bg-sky-950 text-sky-400 border border-sky-800;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400 transition-all;
+  }
+
+  .nav-item:hover {
+    @apply bg-slate-800 text-slate-200;
+  }
+
+  .nav-item.active {
+    @apply bg-slate-800 text-sky-400;
+  }
+
+  .chart-container {
+    @apply w-full h-[300px];
+  }
+}

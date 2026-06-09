@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forecast-engine
+  namespace: finops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forecast-engine
+  template:
+    metadata:
+      labels:
+        app: forecast-engine
+    spec:
+      containers:
+      - name: forecast
+        image: finops/forecast-engine:latest
+        ports:
+        - containerPort: 8001
+        env:
+        - name: PORT
+          value: "8001"
+        - name: CLICKHOUSE_ADDR
+          valueFrom:
+            configMapKeyRef:
+              name: finops-config
+              key: CLICKHOUSE_ADDR
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forecast-engine
+  namespace: finops
+spec:
+  selector:
+    app: forecast-engine
+  ports:
+  - port: 8001
+    targetPort: 8001

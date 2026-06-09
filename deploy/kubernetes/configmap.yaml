@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: finops-config
+  namespace: finops
+data:
+  KAFKA_BROKERS: "kafka:9092"
+  CLICKHOUSE_ADDR: "clickhouse:9000"
+  CLICKHOUSE_DB: "finops"
+  RATE_LIMIT_RPS: "100"
+  RATE_LIMIT_BURST: "200"

@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-manager
+  namespace: finops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alert-manager
+  template:
+    metadata:
+      labels:
+        app: alert-manager
+    spec:
+      containers:
+      - name: alert-manager
+        image: finops/alert-manager:latest
+        ports:
+        - containerPort: 8083
+        env:
+        - name: PORT
+          value: "8083"
+        - name: POSTGRES_DSN
+          value: "postgres://finops:$(POSTGRES_PASSWORD)@postgres:5432/finops?sslmode=disable"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: finops-secrets
+              key: postgres-password
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef:
+              name: finops-config
+              key: KAFKA_BROKERS
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: 8083
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8083
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-manager
+  namespace: finops
+spec:
+  selector:
+    app: alert-manager
+  ports:
+  - port: 8083
+    targetPort: 8083

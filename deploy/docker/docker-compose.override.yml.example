@@ -1,0 +1,24 @@
+# docker-compose.override.yml
+# Copie para docker-compose.override.yml para customizar localmente
+# Este arquivo não deve ser commitado
+
+version: '3.8'
+
+services:
+  api-gateway:
+    ports:
+      - "8080:8080"
+    environment:
+      - JWT_SECRET=local-dev-secret
+
+  cost-analytics:
+    environment:
+      - LOG_LEVEL=debug
+
+  forecast-engine:
+    environment:
+      - LOG_LEVEL=debug
+
+  # Descomente para usar imagens locais em vez de build
+  # api-gateway:
+  #   image: finops/api-gateway:latest
