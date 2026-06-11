@@ -11,7 +11,7 @@ services:
       POSTGRES_DB: finops
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../../database/postgresql/migrations:/docker-entrypoint-initdb.d
+      - ./database/postgresql/migrations:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
     healthcheck:
@@ -31,7 +31,7 @@ services:
       CLICKHOUSE_PASSWORD: ""
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ../../database/clickhouse/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./database/clickhouse/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     ports:
       - "8123:8123"
       - "9000:9000"
@@ -93,7 +93,7 @@ services:
     image: prom/prometheus:v2.48.0
     container_name: finops-prometheus
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./deploy/docker/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
@@ -108,8 +108,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./deploy/docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./deploy/docker/grafana/datasources:/etc/grafana/provisioning/datasources
     ports:
       - "3001:3000"
     networks:
@@ -121,7 +121,7 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - ./loki.yml:/etc/loki/local-config.yaml
+      - ./deploy/docker/loki.yml:/etc/loki/local-config.yaml
     command: -config.file=/etc/loki/local-config.yaml
     networks:
       - finops-network
@@ -129,7 +129,7 @@ services:
   # Backend Services
   api-gateway:
     build:
-      context: ../../backend/api-gateway
+      context: ./backend/api-gateway
       dockerfile: Dockerfile
     container_name: finops-api-gateway
     environment:
@@ -156,7 +156,7 @@ services:
 
   ingestion-service:
     build:
-      context: ../../backend/ingestion-service
+      context: ./backend/ingestion-service
       dockerfile: Dockerfile
     container_name: finops-ingestion
     environment:
@@ -178,7 +178,7 @@ services:
 
   cost-analytics:
     build:
-      context: ../../backend/cost-analytics
+      context: ./backend/cost-analytics
       dockerfile: Dockerfile
     container_name: finops-cost-analytics
     environment:
@@ -187,7 +187,6 @@ services:
       CLICKHOUSE_ADDR: clickhouse:9000
       CLICKHOUSE_DB: finops
       KAFKA_BROKERS: kafka:9092
-      USD_TO_BRL_RATE: ${USD_TO_BRL_RATE:-5.0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -205,7 +204,7 @@ services:
 
   alert-manager:
     build:
-      context: ../../backend/alert-manager
+      context: ./backend/alert-manager
       dockerfile: Dockerfile
     container_name: finops-alert-manager
     environment:
@@ -228,7 +227,7 @@ services:
   # ML Services
   forecast-engine:
     build:
-      context: ../../ml/forecast-engine
+      context: ./ml/forecast-engine
       dockerfile: Dockerfile
     container_name: finops-forecast
     environment:
@@ -247,7 +246,7 @@ services:
 
   anomaly-detection:
     build:
-      context: ../../ml/anomaly-detection
+      context: ./ml/anomaly-detection
       dockerfile: Dockerfile
     container_name: finops-anomaly
     environment:
@@ -266,7 +265,7 @@ services:
 
   recommendation-engine:
     build:
-      context: ../../ml/recommendation-engine
+      context: ./ml/recommendation-engine
       dockerfile: Dockerfile
     container_name: finops-recommendation
     environment:
@@ -286,12 +285,11 @@ services:
   # Frontend (Next.js)
   frontend:
     build:
-      context: ../../frontend/nextjs
+      context: ./frontend/nextjs
       dockerfile: Dockerfile
     container_name: finops-frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://api-gateway:8080
-      - NEXT_PUBLIC_USD_TO_BRL_RATE=${NEXT_PUBLIC_USD_TO_BRL_RATE:-5.0}
     ports:
       - "3000:3000"
     depends_on:
