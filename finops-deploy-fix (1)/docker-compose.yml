@@ -1,0 +1,373 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # INFRASTRUCTURE
+  # ============================================
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: finops-postgres
+    environment:
+      POSTGRES_USER: finops
+      POSTGRES_PASSWORD: finops
+      POSTGRES_DB: finops
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/postgresql/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - finops-network
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    container_name: finops-clickhouse
+    environment:
+      CLICKHOUSE_DB: finops
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./database/clickhouse/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8123/ping 2>/dev/null || curl -fsS http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - finops-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: finops-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finops-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: finops-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - finops-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: finops-kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - finops-network
+
+  # ============================================
+  # OBSERVABILITY
+  # ============================================
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: finops-prometheus
+    volumes:
+      - ./deploy/docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - finops-network
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: finops-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/docker/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/docker/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - finops-network
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: finops-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./deploy/docker/loki.yml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/prometheus/local-config.yaml
+    networks:
+      - finops-network
+
+  # ============================================
+  # BACKEND SERVICES
+  # ============================================
+
+  api-gateway:
+    build:
+      context: ./backend/api-gateway
+      dockerfile: Dockerfile
+    container_name: finops-api-gateway
+    environment:
+      PORT: 8080
+      JWT_SECRET: finops-enterprise-secret-key
+      RATE_LIMIT_RPS: 100
+      RATE_LIMIT_BURST: 200
+      POSTGRES_DSN: postgres://finops:finops@postgres:5432/finops?sslmode=disable
+      REDIS_ADDR: redis:6379
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - finops-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/health 2>/dev/null || curl -fsS http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  ingestion-service:
+    build:
+      context: ./backend/ingestion-service
+      dockerfile: Dockerfile
+    container_name: finops-ingestion
+    environment:
+      PORT: 8081
+      KAFKA_BROKERS: kafka:9092
+      HUAWEI_ACCESS_KEY: ${HUAWEI_ACCESS_KEY:-}
+      HUAWEI_SECRET_KEY: ${HUAWEI_SECRET_KEY:-}
+      HUAWEI_OBS_ENDPOINT: ${HUAWEI_OBS_ENDPOINT:-}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - finops-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8081/health 2>/dev/null || curl -fsS http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  cost-analytics:
+    build:
+      context: ./backend/cost-analytics
+      dockerfile: Dockerfile
+    container_name: finops-cost-analytics
+    environment:
+      PORT: 8082
+      POSTGRES_DSN: postgres://finops:finops@postgres:5432/finops?sslmode=disable
+      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_DB: finops
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - finops-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8082/health 2>/dev/null || curl -fsS http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  alert-manager:
+    build:
+      context: ./backend/alert-manager
+      dockerfile: Dockerfile
+    container_name: finops-alert-manager
+    environment:
+      PORT: 8083
+      POSTGRES_DSN: postgres://finops:finops@postgres:5432/finops?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - finops-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8083/health 2>/dev/null || curl -fsS http://localhost:8083/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ============================================
+  # ML SERVICES
+  # ============================================
+
+  forecast-engine:
+    build:
+      context: ./ml/forecast-engine
+      dockerfile: Dockerfile
+    container_name: finops-forecast
+    environment:
+      PORT: 8001
+      CLICKHOUSE_ADDR: clickhouse:9000
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - finops-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8001/health 2>/dev/null || curl -fsS http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  anomaly-detection:
+    build:
+      context: ./ml/anomaly-detection
+      dockerfile: Dockerfile
+    container_name: finops-anomaly
+    environment:
+      PORT: 8002
+      CLICKHOUSE_ADDR: clickhouse:9000
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - finops-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8002/health 2>/dev/null || curl -fsS http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  recommendation-engine:
+    build:
+      context: ./ml/recommendation-engine
+      dockerfile: Dockerfile
+    container_name: finops-recommendation
+    environment:
+      PORT: 8003
+      CLICKHOUSE_ADDR: clickhouse:9000
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - finops-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8003/health 2>/dev/null || curl -fsS http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # ============================================
+  # FRONTEND
+  # ============================================
+
+  frontend:
+    build:
+      context: ./frontend/nextjs
+      dockerfile: Dockerfile
+    container_name: finops-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api-gateway:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks:
+      - finops-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000 2>/dev/null || curl -fsS http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+# ============================================
+# VOLUMES
+# ============================================
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  finops-network:
+    driver: bridge
