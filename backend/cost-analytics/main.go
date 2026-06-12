@@ -3,8 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"log"
+		"log"
 	"net/http"
 	"os"
 	"time"

@@ -10,6 +10,8 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+USD_TO_BRL_RATE = float(os.getenv("USD_TO_BRL_RATE", "5.15"))
+
 app = FastAPI(title="FinOps Recommendation Engine", version="1.0.0")
 
 class RecommendationRequest(BaseModel):

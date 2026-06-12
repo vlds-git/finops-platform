@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -305,8 +306,13 @@ func corsMiddleware() gin.HandlerFunc {
 
 func structuredLogger() gin.HandlerFunc {
 	return gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		return `{"time":"` + param.TimeStamp.Format(time.RFC3339) + `","client":"` + param.ClientIP + `","method":"` + param.Method + `","path":"` + param.Path + `","status":` + string(rune(param.StatusCode)) + `,"latency":"` + param.Latency.String() + `"}` + "
-"
+		return fmt.Sprintf(`{"time":"%s","client":"%s","method":"%s","path":"%s","status":%d,"latency":"%s"}`+"\n",
+ param.TimeStamp.Format(time.RFC3339),
+ param.ClientIP,
+ param.Method,
+ param.Path,
+ param.StatusCode,
+ param.Latency.String())
 	})
 }
 

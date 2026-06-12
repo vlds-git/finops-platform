@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"strconv"
 	"database/sql"
 	"encoding/json"
 	"log"
@@ -124,9 +126,7 @@ func (s *AlertManager) sendNotification(alert Alert) {
 		Channel:     rule.Channel,
 		Destination: rule.Destination,
 		Subject:     "FinOps Alert: " + alert.RuleName,
-		Body:        alert.Message + "
-Value: " + string(rune(int(alert.Value))) + "
-Threshold: " + string(rune(int(alert.Threshold))),
+		Body:        fmt.Sprintf("%s\nValue: %.2f\nThreshold: %.2f", alert.Message, alert.Value, alert.Threshold),
 	}
 
 	switch rule.Channel {

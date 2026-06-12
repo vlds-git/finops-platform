@@ -14,10 +14,14 @@ datasources:
     url: http://loki:3100
     editable: false
 
-  - name: ClickHouse
-    type: grafana-clickhouse-datasource
+  - name: PostgreSQL
+    type: postgres
     access: proxy
-    url: http://clickhouse:8123
-    editable: false
+    url: postgres:5432
+    database: finops
+    user: finops
+    secureJsonData:
+      password: finops
     jsonData:
-      defaultDatabase: finops
+      sslmode: disable
+    editable: false

@@ -1,17 +1,15 @@
 package main
 
 import (
-	"bufio"
-	"compress/gzip"
-	"context"
-	"encoding/csv"
-	"encoding/json"
+			"context"
+		"encoding/json"
 	"fmt"
-	"io"
-	"log"
+		"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"archive/zip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +68,19 @@ type Checkpoint struct {
 	LastFile   string    `json:"last_file"`
 	LastOffset int64     `json:"last_offset"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+
+
+var usdToBRLRate float64
+
+func init() {
+    rateStr := getEnv("USD_TO_BRL_RATE", "5.15")
+    if r, err := strconv.ParseFloat(rateStr, 64); err == nil {
+        usdToBRLRate = r
+    } else {
+        usdToBRLRate = 5.15
+    }
 }
 
 func main() {
@@ -176,7 +187,9 @@ func (s *IngestionService) parseFile(filename, provider string) []FocusRecord {
 	var records []FocusRecord
 	ext := strings.ToLower(filepath.Ext(filename))
 
-	if ext == ".csv" {
+	if ext == ".zip" {
+		records = s.parseZIP(filename, provider)
+	} else if ext == ".csv" {
 		records = s.parseCSV(filename, provider)
 	} else if ext == ".parquet" {
 		records = s.parseParquet(filename, provider)
@@ -248,6 +261,7 @@ func (s *IngestionService) statusHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "running",
 		"checkpoints": len(s.checkpoints),
+		"usd_to_brl":  usdToBRLRate,
 		"timestamp":   time.Now().UTC(),
 	})
 }
