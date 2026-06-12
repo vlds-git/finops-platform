@@ -1,5 +1,6 @@
 'use client';
 
+import * as echarts from 'echarts';
 import { BaseChart } from './BaseChart';
 
 interface BarChartProps {
@@ -10,7 +11,7 @@ interface BarChartProps {
 }
 
 export function BarChart({ data, className, horizontal = false, color = '#38bdf8' }: BarChartProps) {
-  const option = {
+  const option: echarts.EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',

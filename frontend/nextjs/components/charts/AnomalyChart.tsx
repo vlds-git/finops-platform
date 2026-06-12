@@ -1,5 +1,6 @@
 'use client';
 
+import * as echarts from 'echarts';
 import { BaseChart } from './BaseChart';
 import type { AnomalyPoint } from '@/types';
 
@@ -17,7 +18,7 @@ export function AnomalyChart({ data, dates, anomalies, className }: AnomalyChart
     return anomaly ? [i, data[i]] : null;
   }).filter((item): item is number[] => item !== null);
 
-  const option = {
+  const option: echarts.EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',

@@ -1,5 +1,6 @@
 'use client';
 
+import * as echarts from 'echarts';
 import { BaseChart } from './BaseChart';
 import type { CostTrend } from '@/types';
 
@@ -9,7 +10,7 @@ interface TrendChartProps {
 }
 
 export function TrendChart({ data, className }: TrendChartProps) {
-  const option = {
+  const option: echarts.EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',

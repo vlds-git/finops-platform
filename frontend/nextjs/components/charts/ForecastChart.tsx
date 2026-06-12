@@ -1,5 +1,6 @@
 'use client';
 
+import * as echarts from 'echarts';
 import { BaseChart } from './BaseChart';
 import type { ForecastPoint } from '@/types';
 
@@ -35,7 +36,7 @@ export function ForecastChart({ historical, forecast, className }: ForecastChart
     ...forecast.map(d => d.lower),
   ];
 
-  const option = {
+  const option: echarts.EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',

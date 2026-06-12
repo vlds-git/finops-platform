@@ -1,5 +1,6 @@
 'use client';
 
+import * as echarts from 'echarts';
 import { BaseChart } from './BaseChart';
 
 interface MultiCloudChartProps {
@@ -13,7 +14,7 @@ interface MultiCloudChartProps {
 }
 
 export function MultiCloudChart({ data, className }: MultiCloudChartProps) {
-  const option = {
+  const option: echarts.EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',

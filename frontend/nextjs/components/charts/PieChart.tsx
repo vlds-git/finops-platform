@@ -1,5 +1,6 @@
 'use client';
 
+import * as echarts from 'echarts';
 import { BaseChart } from './BaseChart';
 
 interface PieChartProps {
@@ -9,7 +10,7 @@ interface PieChartProps {
 }
 
 export function PieChart({ data, className, colors = ['#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#94a3b8'] }: PieChartProps) {
-  const option = {
+  const option: echarts.EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
