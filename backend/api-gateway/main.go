@@ -67,6 +67,11 @@ func main() {
 	api.GET("/costs/applications", proxyTo("http://cost-analytics:8082"))
 	api.GET("/costs/environments", proxyTo("http://cost-analytics:8082"))
 	api.GET("/costs/business-units", proxyTo("http://cost-analytics:8082"))
+	api.GET("/costs/regions", proxyTo("http://cost-analytics:8082"))
+	api.GET("/costs/providers", proxyTo("http://cost-analytics:8082"))
+	api.GET("/kpis", proxyTo("http://cost-analytics:8082"))
+	api.GET("/dashboard/executive", proxyTo("http://cost-analytics:8082"))
+	api.GET("/dashboard/operational", proxyTo("http://cost-analytics:8082"))
 
 	// Forecast
 	api.GET("/forecast", proxyTo("http://forecast-engine:8001"))
