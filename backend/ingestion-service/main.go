@@ -144,10 +144,12 @@ func main() {
 	r.GET("/health", healthHandler)
 	r.GET("/ready", readyHandler)
 	r.GET("/live", liveHandler)
-	r.POST("/ingestion/trigger", svc.triggerHandler)
-	r.GET("/ingestion/status", svc.statusHandler)
-	r.GET("/ingestion/checkpoints", svc.checkpointsHandler)
-	r.POST("/ingestion/reprocess", svc.reprocessHandler)
+
+	api := r.Group("/api/v1")
+	api.POST("/ingestion/trigger", svc.triggerHandler)
+	api.GET("/ingestion/status", svc.statusHandler)
+	api.GET("/ingestion/checkpoints", svc.checkpointsHandler)
+	api.POST("/ingestion/reprocess", svc.reprocessHandler)
 
 	port := getEnv("PORT", "8081")
 	log.Printf("Ingestion Service starting on port %s (scheduler every %s)", port, interval)

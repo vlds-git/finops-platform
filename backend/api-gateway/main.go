@@ -101,9 +101,9 @@ func main() {
 	api.DELETE("/alerts/:id", proxyTo("http://alert-manager:8083"))
 
 	// Ingestion
-	api.POST("/ingestion/trigger", proxyTo("http://ingestion-service:8081/api/v1"))
-	api.GET("/ingestion/status", proxyTo("http://ingestion-service:8081/api/v1"))
-	api.GET("/ingestion/checkpoints", proxyTo("http://ingestion-service:8081/api/v1"))
+	api.POST("/ingestion/trigger", proxyTo("http://ingestion-service:8081"))
+	api.GET("/ingestion/status", proxyTo("http://ingestion-service:8081"))
+	api.GET("/ingestion/checkpoints", proxyTo("http://ingestion-service:8081"))
 
 	// Admin
 	api.GET("/admin/users", proxyTo("http://cost-analytics:8082"))
