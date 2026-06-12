@@ -174,6 +174,7 @@ export interface OperationalDashboard {
   by_project: { name: string; cost: number }[];
   by_environment: { name: string; cost: number }[];
   by_region: { name: string; cost: number }[];
+  by_business_unit: { name: string; cost: number }[];
   by_tags: { key: string; value: string; cost: number }[];
 }
 
