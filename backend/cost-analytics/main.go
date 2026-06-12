@@ -29,8 +29,8 @@ type CostSummary struct {
 	TotalCost     float64 `json:"total_cost"`
 	AmortizedCost float64 `json:"amortized_cost"`
 	ListCost      float64 `json:"list_cost"`
-	ServiceCount  int     `json:"service_count"`
-	ResourceCount int     `json:"resource_count"`
+	ServiceCount  uint64  `json:"service_count"`
+	ResourceCount uint64  `json:"resource_count"`
 }
 
 type KPIData struct {
