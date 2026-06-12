@@ -102,6 +102,7 @@ func main() {
 
 	// Ingestion
 	api.POST("/ingestion/trigger", proxyTo("http://ingestion-service:8081"))
+	api.POST("/ingestion/reprocess", proxyTo("http://ingestion-service:8081"))
 	api.GET("/ingestion/status", proxyTo("http://ingestion-service:8081"))
 	api.GET("/ingestion/checkpoints", proxyTo("http://ingestion-service:8081"))
 

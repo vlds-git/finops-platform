@@ -20,8 +20,13 @@ const redirectToLogin = () => {
   }
 };
 
+const rawBaseURL = process.env.NEXT_PUBLIC_API_URL || '';
+const baseURL = rawBaseURL
+  ? rawBaseURL.replace(/\/?$/, '') + '/api/v1'
+  : '/api/v1';
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || '/api/v1',
+  baseURL,
   headers: {
     'Content-Type': 'application/json',
   },

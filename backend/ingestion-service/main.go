@@ -167,8 +167,9 @@ func initObsClient() (*minio.Client, error) {
 	}
 
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(ak, sk, ""),
-		Secure: true,
+		Creds:        credentials.NewStaticV4(ak, sk, ""),
+		Secure:       true,
+		BucketLookup: minio.BucketLookupDNS,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OBS client: %w", err)
