@@ -67,11 +67,13 @@ Todos os serviços expõem:
 
 ## Variáveis de Ambiente
 
-Copie `.env.example` para `.env` e ajuste conforme necessário:
+Copie `.env.example` para `.env` e **preencha obrigatoriamente** as credenciais Huawei OBS:
 
 ```bash
 cp .env.example .env
 ```
+
+> ⚠️ **A integração com Huawei OBS é mandatória.** O `ingestion-service` não sobe sem `HUAWEI_ACCESS_KEY` e `HUAWEI_SECRET_KEY` configurados. A OBS é acessada via cliente S3 compatível (`minio-go/v7`).
 
 ## Licença
 
