@@ -1,0 +1,12 @@
+{{- if .Values.costAnalytics.enabled }}
+{{- $pgDSN := printf "postgres://%s:%s@%s-postgresql:5432/%s?sslmode=disable" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "finops.fullname" .) .Values.postgresql.auth.database -}}
+{{- include "finops.deployment" (dict "Root" . "Name" "cost-analytics" "Component" "cost-analytics" "ValuesKey" "costAnalytics" "Port" 8082 "Env" (list
+  (dict "name" "POSTGRES_DSN" "value" $pgDSN)
+  (dict "name" "CLICKHOUSE_ADDR" "value" (printf "%s-clickhouse:9000" (include "finops.fullname" .)))
+  (dict "name" "CLICKHOUSE_DB" "value" "finops")
+  (dict "name" "CLICKHOUSE_USER" "value" "default")
+  (dict "name" "CLICKHOUSE_PASSWORD" "value" "")
+  (dict "name" "KAFKA_BROKERS" "value" (printf "%s-kafka:9092" (include "finops.fullname" .)))
+  (dict "name" "USD_TO_BRL_RATE" "value" "5.15")
+)) }}
+{{- end }}

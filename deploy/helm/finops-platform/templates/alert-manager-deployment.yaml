@@ -1,0 +1,7 @@
+{{- if .Values.alertManager.enabled }}
+{{- $pgDSN := printf "postgres://%s:%s@%s-postgresql:5432/%s?sslmode=disable" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "finops.fullname" .) .Values.postgresql.auth.database -}}
+{{- include "finops.deployment" (dict "Root" . "Name" "alert-manager" "Component" "alert-manager" "ValuesKey" "alertManager" "Port" 8083 "Env" (list
+  (dict "name" "POSTGRES_DSN" "value" $pgDSN)
+  (dict "name" "KAFKA_BROKERS" "value" (printf "%s-kafka:9092" (include "finops.fullname" .)))
+)) }}
+{{- end }}

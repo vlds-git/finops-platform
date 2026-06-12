@@ -21,8 +21,12 @@ export default function LoginPage() {
       const res = await api.post('/auth/login', { email, password });
       localStorage.setItem('token', res.data.token);
       router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Erro de autenticação');
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.error || 'Erro de autenticação');
+      } else {
+        setError('Erro de autenticação');
+      }
     } finally {
       setLoading(false);
     }

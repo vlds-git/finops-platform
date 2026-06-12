@@ -7,5 +7,8 @@ data:
   KAFKA_BROKERS: "kafka:9092"
   CLICKHOUSE_ADDR: "clickhouse:9000"
   CLICKHOUSE_DB: "finops"
+  CLICKHOUSE_USER: "default"
+  REDIS_ADDR: "redis:6379"
   RATE_LIMIT_RPS: "100"
   RATE_LIMIT_BURST: "200"
+  USD_TO_BRL_RATE: "5.15"

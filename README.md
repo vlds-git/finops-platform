@@ -4,7 +4,7 @@ Plataforma FinOps moderna, escalável e pronta para produção.
 
 ## Stack
 
-- **Frontend**: HTML5 + TailwindCSS + Apache ECharts (Preview)
+- **Frontend**: Next.js 14 + TailwindCSS + Apache ECharts
 - **Backend**: Golang + Gin
 - **ML**: Python + FastAPI
 - **Analytics**: ClickHouse
@@ -17,21 +17,32 @@ Plataforma FinOps moderna, escalável e pronta para produção.
 ## Quick Start
 
 ```bash
-# Docker Compose
-cd deploy/docker
-docker-compose up -d
+# Docker Compose (recomendado para desenvolvimento/local)
+docker compose up -d --build
 
-# Ou Kubernetes + Helm
-cd deploy/helm/finops-platform
-helm install finops .
+# Ou Kubernetes
+make deploy-k8s
+
+# Ou Helm
+make deploy-helm
 ```
+
+Após subir a stack:
+- Frontend: http://localhost:3000
+- API Gateway: http://localhost:8080
+- Grafana: http://localhost:3001 (admin/admin)
+- Prometheus: http://localhost:9090
+
+Login de demo: `admin@finops.local` / `admin123`
 
 ## Documentação
 
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [Runbook Operacional](docs/RUNBOOK.md)
 - [Guia do Administrador](docs/ADMIN_GUIDE.md)
-- [UI Architecture](frontend/preview/UI-ARCHITECTURE.md)
+- [Guia de Deploy](docs/DEPLOY_GUIDE.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [UI Architecture](docs/UI-ARCHITECTURE.md)
 
 ## Serviços
 
@@ -53,6 +64,14 @@ Todos os serviços expõem:
 - `/ready` - Readiness probe
 - `/live` - Liveness probe
 - `/metrics` - Prometheus metrics
+
+## Variáveis de Ambiente
+
+Copie `.env.example` para `.env` e ajuste conforme necessário:
+
+```bash
+cp .env.example .env
+```
 
 ## Licença
 

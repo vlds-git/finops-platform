@@ -14,28 +14,29 @@ build: ## Build todas as imagens Docker
 	cd ml/forecast-engine && docker build -t finops/forecast-engine:latest .
 	cd ml/anomaly-detection && docker build -t finops/anomaly-detection:latest .
 	cd ml/recommendation-engine && docker build -t finops/recommendation-engine:latest .
+	cd frontend/nextjs && docker build -t finops/frontend:latest .
 	@echo "Build complete!"
 
 up: ## Sobe a stack com Docker Compose
-	cd deploy/docker && docker-compose up -d
+	docker compose -f docker-compose.yml up -d
 
 down: ## Para a stack com Docker Compose
-	cd deploy/docker && docker-compose down
+	docker compose -f docker-compose.yml down
 
 down-volumes: ## Para e remove volumes (CUIDADO: perde dados)
-	cd deploy/docker && docker-compose down -v
+	docker compose -f docker-compose.yml down -v
 
 logs: ## Mostra logs de todos os serviços
-	cd deploy/docker && docker-compose logs -f
+	docker compose -f docker-compose.yml logs -f
 
 logs-gateway: ## Logs do API Gateway
-	cd deploy/docker && docker-compose logs -f api-gateway
+	docker compose -f docker-compose.yml logs -f api-gateway
 
 logs-cost: ## Logs do Cost Analytics
-	cd deploy/docker && docker-compose logs -f cost-analytics
+	docker compose -f docker-compose.yml logs -f cost-analytics
 
 logs-ml: ## Logs dos serviços ML
-	cd deploy/docker && docker-compose logs -f forecast-engine anomaly-detection recommendation-engine
+	docker compose -f docker-compose.yml logs -f forecast-engine anomaly-detection recommendation-engine
 
 test: ## Executa health checks em todos os serviços
 	@echo "Testing health endpoints..."
@@ -65,10 +66,17 @@ delete-k8s: ## Remove do Kubernetes
 # Helm
 deploy-helm: ## Deploy com Helm
 	helm dependency build deploy/helm/finops-platform
-	helm install finops deploy/helm/finops-platform 		--namespace finops 		--create-namespace 		--wait 		--timeout 600s
+	hem install finops deploy/helm/finops-platform \
+		--namespace finops \
+		--create-namespace \
+		--wait \
+		--timeout 600s
 
 upgrade-helm: ## Upgrade com Helm
-	helm upgrade finops deploy/helm/finops-platform 		--namespace finops 		--wait 		--timeout 600s
+	helm upgrade finops deploy/helm/finops-platform \
+		--namespace finops \
+		--wait \
+		--timeout 600s
 
 rollback-helm: ## Rollback Helm
 	helm rollback finops -n finops

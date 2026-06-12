@@ -32,7 +32,7 @@ services:
     environment:
       CLICKHOUSE_DB: finops
       CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./database/clickhouse/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
@@ -90,7 +90,7 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     depends_on:
       zookeeper:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "9092:9092"
     healthcheck:
@@ -118,8 +118,15 @@ services:
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=15d'
     ports:
       - "9090:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9090/-/healthy 2>/dev/null || curl -fsS http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - finops-network
 
@@ -137,8 +144,16 @@ services:
     ports:
       - "3001:3000"
     depends_on:
-      - prometheus
-      - loki
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/health 2>/dev/null || curl -fsS http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - finops-network
 
@@ -150,6 +165,12 @@ services:
     volumes:
       - ./deploy/docker/loki.yml:/etc/loki/local-config.yaml:ro
     command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3100/ready 2>/dev/null || curl -fsS http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - finops-network
 
@@ -164,11 +185,11 @@ services:
     container_name: finops-api-gateway
     environment:
       PORT: 8080
-      JWT_SECRET: finops-enterprise-secret-key
-      RATE_LIMIT_RPS: 100
-      RATE_LIMIT_BURST: 200
-      POSTGRES_DSN: postgres://finops:finops@postgres:5432/finops?sslmode=disable
-      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:-finops-enterprise-secret-key-change-in-production}
+      RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-100}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-200}
+      POSTGRES_DSN: ${POSTGRES_DSN:-postgres://finops:finops@postgres:5432/finops?sslmode=disable}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
     ports:
       - "8080:8080"
     depends_on:
@@ -193,14 +214,14 @@ services:
     container_name: finops-ingestion
     environment:
       PORT: 8081
-      KAFKA_BROKERS: kafka:9092
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
       HUAWEI_ACCESS_KEY: ${HUAWEI_ACCESS_KEY:-}
       HUAWEI_SECRET_KEY: ${HUAWEI_SECRET_KEY:-}
       HUAWEI_OBS_ENDPOINT: ${HUAWEI_OBS_ENDPOINT:-}
       USD_TO_BRL_RATE: ${USD_TO_BRL_RATE:-5.15}
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
     networks:
       - finops-network
     healthcheck:
@@ -218,18 +239,20 @@ services:
     container_name: finops-cost-analytics
     environment:
       PORT: 8082
-      POSTGRES_DSN: postgres://finops:finops@postgres:5432/finops?sslmode=disable
-      CLICKHOUSE_ADDR: clickhouse:9000
-      CLICKHOUSE_DB: finops
-      KAFKA_BROKERS: kafka:9092
+      POSTGRES_DSN: ${POSTGRES_DSN:-postgres://finops:finops@postgres:5432/finops?sslmode=disable}
+      CLICKHOUSE_ADDR: ${CLICKHOUSE_ADDR:-clickhouse:9000}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-finops}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
       USD_TO_BRL_RATE: ${USD_TO_BRL_RATE:-5.15}
     depends_on:
       postgres:
         condition: service_healthy
       clickhouse:
-        condition: service_started
+        condition: service_healthy
       kafka:
-        condition: service_started
+        condition: service_healthy
     networks:
       - finops-network
     healthcheck:
@@ -247,13 +270,13 @@ services:
     container_name: finops-alert-manager
     environment:
       PORT: 8083
-      POSTGRES_DSN: postgres://finops:finops@postgres:5432/finops?sslmode=disable
-      KAFKA_BROKERS: kafka:9092
+      POSTGRES_DSN: ${POSTGRES_DSN:-postgres://finops:finops@postgres:5432/finops?sslmode=disable}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
-        condition: service_started
+        condition: service_healthy
     networks:
       - finops-network
     healthcheck:
@@ -275,11 +298,11 @@ services:
     container_name: finops-forecast
     environment:
       PORT: 8001
-      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_ADDR: ${CLICKHOUSE_ADDR:-clickhouse:9000}
       USD_TO_BRL_RATE: ${USD_TO_BRL_RATE:-5.15}
     depends_on:
       clickhouse:
-        condition: service_started
+        condition: service_healthy
     networks:
       - finops-network
     healthcheck:
@@ -297,11 +320,11 @@ services:
     container_name: finops-anomaly
     environment:
       PORT: 8002
-      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_ADDR: ${CLICKHOUSE_ADDR:-clickhouse:9000}
       USD_TO_BRL_RATE: ${USD_TO_BRL_RATE:-5.15}
     depends_on:
       clickhouse:
-        condition: service_started
+        condition: service_healthy
     networks:
       - finops-network
     healthcheck:
@@ -319,11 +342,11 @@ services:
     container_name: finops-recommendation
     environment:
       PORT: 8003
-      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_ADDR: ${CLICKHOUSE_ADDR:-clickhouse:9000}
       USD_TO_BRL_RATE: ${USD_TO_BRL_RATE:-5.15}
     depends_on:
       clickhouse:
-        condition: service_started
+        condition: service_healthy
     networks:
       - finops-network
     healthcheck:
@@ -342,9 +365,9 @@ services:
     build:
       context: ./frontend/nextjs
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     container_name: finops-frontend
-    environment:
-      - NEXT_PUBLIC_API_URL=http://api-gateway:8080
     ports:
       - "3000:3000"
     depends_on:

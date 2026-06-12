@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -204,12 +207,25 @@ func auditMiddleware() gin.HandlerFunc {
 // Proxy helper
 func proxyTo(target string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// In production, use reverse proxy. Here we forward for simplicity.
-		c.JSON(http.StatusOK, gin.H{
-			"proxy_target": target,
-			"path": c.Request.URL.Path,
-			"message": "Request forwarded",
-		})
+		targetURL, err := url.Parse(target)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid proxy target"})
+			return
+		}
+		proxy := httputil.NewSingleHostReverseProxy(targetURL)
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Printf("[PROXY] error: %v", err)
+			w.WriteHeader(http.StatusBadGateway)
+		}
+		proxy.Director = func(req *http.Request) {
+			req.Host = targetURL.Host
+			req.URL.Scheme = targetURL.Scheme
+			req.URL.Host = targetURL.Host
+			req.URL.Path = c.Request.URL.Path
+			req.URL.RawQuery = c.Request.URL.RawQuery
+			req.Header = c.Request.Header.Clone()
+		}
+		proxy.ServeHTTP(c.Writer, c.Request)
 	}
 }
 
@@ -323,9 +339,18 @@ func getEnv(key, def string) string {
 	return def
 }
 func getEnvFloat(key string, def float64) float64 {
-	// simplified
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
 	return def
 }
 func getEnvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
 	return def
 }

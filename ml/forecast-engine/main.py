@@ -1,10 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-import json
 import os
 from prophet import Prophet
 from statsmodels.tsa.arima.model import ARIMA
@@ -170,9 +169,9 @@ def forecast(req: ForecastRequest):
     for _, row in result.iterrows():
         forecast_points.append(ForecastPoint(
             date=row['ds'].strftime('%Y-%m-%d'),
-            value=round(float(row['yhat']), 2),
-            lower=round(float(row['yhat_lower']), 2),
-            upper=round(float(row['yhat_upper']), 2)
+            value=round(float(row['yhat']) * USD_TO_BRL_RATE, 2),
+            lower=round(float(row['yhat_lower']) * USD_TO_BRL_RATE, 2),
+            upper=round(float(row['yhat_upper']) * USD_TO_BRL_RATE, 2)
         ))
 
     total = sum(p.value for p in forecast_points)

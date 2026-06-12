@@ -44,7 +44,7 @@ PARTITION BY toYYYYMM(date);
 
 -- Anomalies detected
 CREATE TABLE IF NOT EXISTS finops.anomalies (
-    id UUID,
+    id UUID DEFAULT generateUUIDv4(),
     service_name String,
     region String,
     date Date,
@@ -72,7 +72,7 @@ ORDER BY (forecast_date, service_name);
 
 -- Recommendations
 CREATE TABLE IF NOT EXISTS finops.recommendations (
-    id UUID,
+    id UUID DEFAULT generateUUIDv4(),
     category String,
     title String,
     description String,

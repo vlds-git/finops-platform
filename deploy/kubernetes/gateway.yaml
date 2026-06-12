@@ -29,15 +29,18 @@ spec:
             secretKeyRef:
               name: finops-secrets
               key: jwt-secret
-        - name: POSTGRES_DSN
-          value: "postgres://finops:$(POSTGRES_PASSWORD)@postgres:5432/finops?sslmode=disable"
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
               name: finops-secrets
               key: postgres-password
+        - name: POSTGRES_DSN
+          value: "postgres://finops:$(POSTGRES_PASSWORD)@postgres:5432/finops?sslmode=disable"
         - name: REDIS_ADDR
-          value: "redis:6379"
+          valueFrom:
+            configMapKeyRef:
+              name: finops-config
+              key: REDIS_ADDR
         - name: RATE_LIMIT_RPS
           valueFrom:
             configMapKeyRef:

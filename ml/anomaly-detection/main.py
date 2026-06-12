@@ -1,9 +1,9 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI
+from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from sklearn.ensemble import IsolationForest
 import os
 import logging
@@ -20,8 +20,8 @@ class AnomalyRequest(BaseModel):
     account_id: str
     service: Optional[str] = None
     method: Literal["isolation_forest", "zscore", "rolling_average", "ensemble"] = "ensemble"
-    sensitivity: float = 0.05  # For isolation forest contamination
-    window: int = 7  # For rolling average
+    sensitivity: float = Field(0.05, gt=0, lt=0.5)
+    window: int = Field(7, ge=3, le=30)
 
 class AnomalyPoint(BaseModel):
     date: str
@@ -90,6 +90,7 @@ def detect_rolling_average(df: pd.DataFrame, window: int = 7) -> pd.DataFrame:
     df['is_anomaly'] = (df['cost'] > df['upper_bound']) | (df['cost'] < df['lower_bound'])
     df['anomaly_score'] = np.abs(df['cost'] - df['rolling_mean']) / df['rolling_std']
     df['anomaly_score'] = df['anomaly_score'].fillna(0)
+    df['rolling_mean'] = df['rolling_mean'].fillna(df['cost'])
     return df
 
 def ensemble_detection(df: pd.DataFrame, sensitivity: float, window: int) -> pd.DataFrame:
@@ -153,9 +154,9 @@ def detect_anomalies(req: AnomalyRequest):
 
             anomalies.append(AnomalyPoint(
                 date=row['date'].strftime('%Y-%m-%d'),
-                value=round(float(row['cost']), 2),
-                expected=round(float(row.get('expected', baseline_mean)), 2),
-                deviation=round(float(deviation), 2),
+                value=round(float(row['cost']) * USD_TO_BRL_RATE, 2),
+                expected=round(float(row.get('expected', baseline_mean)) * USD_TO_BRL_RATE, 2),
+                deviation=round(float(deviation) * USD_TO_BRL_RATE, 2),
                 severity=severity,
                 score=round(float(row['anomaly_score']), 4),
                 method=req.method
@@ -167,9 +168,9 @@ def detect_anomalies(req: AnomalyRequest):
         account_id=req.account_id,
         anomalies=anomalies,
         total_anomalies=len(anomalies),
-        total_impact=round(total_impact, 2),
-        baseline_mean=round(baseline_mean, 2),
-        baseline_std=round(baseline_std, 2),
+        total_impact=round(total_impact * USD_TO_BRL_RATE, 2),
+        baseline_mean=round(baseline_mean * USD_TO_BRL_RATE, 2),
+        baseline_std=round(baseline_std * USD_TO_BRL_RATE, 2),
         generated_at=datetime.now().isoformat()
     )
 

@@ -14,12 +14,11 @@ echo "========================================="
 case $ENVIRONMENT in
   docker)
     echo "Deploying with Docker Compose..."
-    cd deploy/docker
-    docker-compose up -d
+    docker compose -f docker-compose.yml up -d --build
     echo ""
     echo "Waiting for services to be healthy..."
     sleep 10
-    docker-compose ps
+    docker compose -f docker-compose.yml ps
     echo ""
     echo "✓ Deployed!"
     echo "Frontend: http://localhost:3000"
@@ -44,7 +43,11 @@ case $ENVIRONMENT in
   helm)
     echo "Deploying with Helm..."
     helm dependency build deploy/helm/finops-platform
-    helm install finops deploy/helm/finops-platform       --namespace $NAMESPACE       --create-namespace       --wait       --timeout 600s
+    helm install finops deploy/helm/finops-platform \
+      --namespace $NAMESPACE \
+      --create-namespace \
+      --wait \
+      --timeout 600s
     echo ""
     echo "✓ Deployed with Helm!"
     helm list -n $NAMESPACE

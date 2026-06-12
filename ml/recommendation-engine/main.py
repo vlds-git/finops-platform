@@ -1,9 +1,7 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Optional, Literal
-import numpy as np
-import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 import logging
 
@@ -51,6 +49,9 @@ class RecommendationResponse(BaseModel):
 def generate_recommendations(provider: str, account_id: str, category: str) -> List[RecommendationItem]:
     recs = []
 
+    def brl(value: float) -> float:
+        return round(value * USD_TO_BRL_RATE, 2)
+
     # Rightsizing recommendations
     if category in ["rightsizing", "all"]:
         recs.append(RecommendationItem(
@@ -62,9 +63,9 @@ def generate_recommendations(provider: str, account_id: str, category: str) -> L
             resource_type="Virtual Machine",
             service="Compute",
             region="sa-brazil-1",
-            current_cost=350.00,
-            projected_cost=175.00,
-            savings=175.00,
+            current_cost=brl(350.00),
+            projected_cost=brl(175.00),
+            savings=brl(175.00),
             savings_percentage=50.0,
             confidence=0.92,
             priority="high",
@@ -83,9 +84,9 @@ def generate_recommendations(provider: str, account_id: str, category: str) -> L
             resource_type="Relational Database",
             service="RDS",
             region="east-us-1",
-            current_cost=1200.00,
-            projected_cost=600.00,
-            savings=600.00,
+            current_cost=brl(1200.00),
+            projected_cost=brl(600.00),
+            savings=brl(600.00),
             savings_percentage=50.0,
             confidence=0.88,
             priority="high",
@@ -107,9 +108,9 @@ def generate_recommendations(provider: str, account_id: str, category: str) -> L
             resource_type="Application Load Balancer",
             service="Network",
             region="sa-brazil-1",
-            current_cost=45.00,
-            projected_cost=0.00,
-            savings=45.00,
+            current_cost=brl(45.00),
+            projected_cost=brl(0.00),
+            savings=brl(45.00),
             savings_percentage=100.0,
             confidence=0.95,
             priority="medium",
@@ -128,9 +129,9 @@ def generate_recommendations(provider: str, account_id: str, category: str) -> L
             resource_type="Elastic IP",
             service="Network",
             region="east-us-1",
-            current_cost=18.00,
-            projected_cost=0.00,
-            savings=18.00,
+            current_cost=brl(18.00),
+            projected_cost=brl(0.00),
+            savings=brl(18.00),
             savings_percentage=100.0,
             confidence=0.98,
             priority="low",
@@ -152,9 +153,9 @@ def generate_recommendations(provider: str, account_id: str, category: str) -> L
             resource_type="EBS Volume",
             service="Storage",
             region="sa-brazil-1",
-            current_cost=85.00,
-            projected_cost=55.00,
-            savings=30.00,
+            current_cost=brl(85.00),
+            projected_cost=brl(55.00),
+            savings=brl(30.00),
             savings_percentage=35.3,
             confidence=0.85,
             priority="medium",
@@ -173,9 +174,9 @@ def generate_recommendations(provider: str, account_id: str, category: str) -> L
             resource_type="Snapshot",
             service="Storage",
             region="east-us-1",
-            current_cost=200.00,
-            projected_cost=50.00,
-            savings=150.00,
+            current_cost=brl(200.00),
+            projected_cost=brl(50.00),
+            savings=brl(150.00),
             savings_percentage=75.0,
             confidence=0.90,
             priority="medium",
@@ -197,9 +198,9 @@ def generate_recommendations(provider: str, account_id: str, category: str) -> L
             resource_type="Reserved Instance",
             service="Compute",
             region="sa-brazil-1",
-            current_cost=5000.00,
-            projected_cost=3000.00,
-            savings=2000.00,
+            current_cost=brl(5000.00),
+            projected_cost=brl(3000.00),
+            savings=brl(2000.00),
             savings_percentage=40.0,
             confidence=0.93,
             priority="high",
@@ -218,9 +219,9 @@ def generate_recommendations(provider: str, account_id: str, category: str) -> L
             resource_type="Savings Plan",
             service="Compute",
             region="global",
-            current_cost=15000.00,
-            projected_cost=11250.00,
-            savings=3750.00,
+            current_cost=brl(15000.00),
+            projected_cost=brl(11250.00),
+            savings=brl(3750.00),
             savings_percentage=25.0,
             confidence=0.91,
             priority="high",

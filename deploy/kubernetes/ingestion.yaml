@@ -36,6 +36,11 @@ spec:
             secretKeyRef:
               name: finops-secrets
               key: huawei-secret-key
+        - name: USD_TO_BRL_RATE
+          valueFrom:
+            configMapKeyRef:
+              name: finops-config
+              key: USD_TO_BRL_RATE
         livenessProbe:
           httpGet:
             path: /live

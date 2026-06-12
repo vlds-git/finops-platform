@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"strconv"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -36,15 +36,15 @@ type AlertRule struct {
 }
 
 type Alert struct {
-	ID        string    `json:"id"`
-	RuleID    string    `json:"rule_id"`
-	RuleName  string    `json:"rule_name"`
-	Severity  string    `json:"severity"`
-	Message   string    `json:"message"`
-	Value     float64   `json:"value"`
-	Threshold float64   `json:"threshold"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         string     `json:"id"`
+	RuleID     string     `json:"rule_id"`
+	RuleName   string     `json:"rule_name"`
+	Severity   string     `json:"severity"`
+	Message    string     `json:"message"`
+	Value      float64    `json:"value"`
+	Threshold  float64    `json:"threshold"`
+	Status     string     `json:"status"`
+	CreatedAt  time.Time  `json:"created_at"`
 	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
 }
 
@@ -61,12 +61,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer pg.Close()
 
 	kafkaRdr := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: []string{getEnv("KAFKA_BROKERS", "kafka:9092")},
 		Topic:   "anomaly.alerts",
 		GroupID: "alert-manager",
 	})
+	defer kafkaRdr.Close()
 
 	svc := &AlertManager{
 		pg:         pg,
@@ -90,20 +92,24 @@ func main() {
 
 	port := getEnv("PORT", "8083")
 	log.Printf("Alert Manager starting on port %s", port)
-	r.Run(":" + port)
+	if err := r.Run(":" + port); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func (s *AlertManager) consumeAlerts() {
 	for {
-		msg, err := s.kafkaRdr.ReadMessage(nil)
+		msg, err := s.kafkaRdr.ReadMessage(context.Background())
 		if err != nil {
 			log.Printf("[KAFKA] Read error: %v", err)
 			continue
 		}
 		var alert Alert
-		json.Unmarshal(msg.Value, &alert)
+		if err := json.Unmarshal(msg.Value, &alert); err != nil {
+			log.Printf("[KAFKA] Unmarshal error: %v", err)
+			continue
+		}
 
-		// Store alert
 		_, err = s.pg.Exec(`INSERT INTO alerts (rule_id, rule_name, severity, message, value, threshold, status) VALUES ($1, $2, $3, $4, $5, $6, 'firing')`,
 			alert.RuleID, alert.RuleName, alert.Severity, alert.Message, alert.Value, alert.Threshold)
 		if err != nil {
@@ -111,16 +117,17 @@ func (s *AlertManager) consumeAlerts() {
 			continue
 		}
 
-		// Send notification
 		s.sendNotification(alert)
 	}
 }
 
 func (s *AlertManager) sendNotification(alert Alert) {
-	// Get rule configuration
 	var rule AlertRule
 	row := s.pg.QueryRow(`SELECT channel, destination FROM alert_rules WHERE id = $1`, alert.RuleID)
-	row.Scan(&rule.Channel, &rule.Destination)
+	if err := row.Scan(&rule.Channel, &rule.Destination); err != nil {
+		log.Printf("[ALERT] Rule lookup failed: %v", err)
+		return
+	}
 
 	notif := Notification{
 		Channel:     rule.Channel,
@@ -143,13 +150,17 @@ func (s *AlertManager) sendNotification(alert Alert) {
 
 func (s *AlertManager) sendSlack(n Notification) {
 	payload := map[string]string{"text": n.Body}
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[SLACK] Marshal failed: %v", err)
+		return
+	}
 	resp, err := s.httpClient.Post(n.Destination, "application/json", bytes.NewBuffer(data))
 	if err != nil {
 		log.Printf("[SLACK] Send failed: %v", err)
 		return
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	log.Printf("[SLACK] Notification sent to %s", n.Destination)
 }
 
@@ -159,17 +170,21 @@ func (s *AlertManager) sendEmail(n Notification) {
 
 func (s *AlertManager) sendWebhook(n Notification) {
 	payload := map[string]interface{}{
-		"subject": n.Subject,
-		"body":    n.Body,
+		"subject":   n.Subject,
+		"body":      n.Body,
 		"timestamp": time.Now().UTC(),
 	}
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[WEBHOOK] Marshal failed: %v", err)
+		return
+	}
 	resp, err := s.httpClient.Post(n.Destination, "application/json", bytes.NewBuffer(data))
 	if err != nil {
 		log.Printf("[WEBHOOK] Send failed: %v", err)
 		return
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	log.Printf("[WEBHOOK] Notification sent to %s", n.Destination)
 }
 
@@ -184,7 +199,10 @@ func (s *AlertManager) getAlerts(c *gin.Context) {
 	var alerts []Alert
 	for rows.Next() {
 		var a Alert
-		rows.Scan(&a.ID, &a.RuleID, &a.RuleName, &a.Severity, &a.Message, &a.Value, &a.Threshold, &a.Status, &a.CreatedAt, &a.ResolvedAt)
+		if err := rows.Scan(&a.ID, &a.RuleID, &a.RuleName, &a.Severity, &a.Message, &a.Value, &a.Threshold, &a.Status, &a.CreatedAt, &a.ResolvedAt); err != nil {
+			log.Printf("[ALERT] Scan error: %v", err)
+			continue
+		}
 		alerts = append(alerts, a)
 	}
 	c.JSON(200, alerts)
@@ -208,7 +226,10 @@ func (s *AlertManager) createAlertRule(c *gin.Context) {
 func (s *AlertManager) updateAlertRule(c *gin.Context) {
 	id := c.Param("id")
 	var rule AlertRule
-	c.ShouldBindJSON(&rule)
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 	_, err := s.pg.Exec(`UPDATE alert_rules SET name=$1, description=$2, condition=$3, threshold=$4, severity=$5, channel=$6, destination=$7, enabled=$8 WHERE id=$9`,
 		rule.Name, rule.Description, rule.Condition, rule.Threshold, rule.Severity, rule.Channel, rule.Destination, rule.Enabled, id)
 	if err != nil {
@@ -249,7 +270,10 @@ func (s *AlertManager) getAlertHistory(c *gin.Context) {
 	var alerts []Alert
 	for rows.Next() {
 		var a Alert
-		rows.Scan(&a.ID, &a.RuleID, &a.RuleName, &a.Severity, &a.Message, &a.Value, &a.Threshold, &a.Status, &a.CreatedAt, &a.ResolvedAt)
+		if err := rows.Scan(&a.ID, &a.RuleID, &a.RuleName, &a.Severity, &a.Message, &a.Value, &a.Threshold, &a.Status, &a.CreatedAt, &a.ResolvedAt); err != nil {
+			log.Printf("[ALERT] Scan error: %v", err)
+			continue
+		}
 		alerts = append(alerts, a)
 	}
 	c.JSON(200, alerts)
@@ -260,6 +284,8 @@ func readyHandler(c *gin.Context)  { c.JSON(200, gin.H{"status": "ready"}) }
 func liveHandler(c *gin.Context)   { c.JSON(200, gin.H{"status": "alive"}) }
 
 func getEnv(key, def string) string {
-	if v := os.Getenv(key); v != "" { return v }
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
 	return def
 }

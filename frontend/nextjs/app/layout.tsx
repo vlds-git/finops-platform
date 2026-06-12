@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { Providers } from '@/components/providers/Providers';
 
 export const metadata: Metadata = {
   title: 'FinOps Enterprise Platform',
@@ -14,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className="dark">
       <body className="h-screen overflow-hidden">
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

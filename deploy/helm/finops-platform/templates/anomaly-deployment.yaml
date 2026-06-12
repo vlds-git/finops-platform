@@ -1,0 +1,6 @@
+{{- if .Values.anomaly.enabled }}
+{{- include "finops.deployment" (dict "Root" . "Name" "anomaly" "Component" "anomaly" "ValuesKey" "anomaly" "Port" 8002 "Env" (list
+  (dict "name" "CLICKHOUSE_ADDR" "value" (printf "%s-clickhouse:9000" (include "finops.fullname" .)))
+  (dict "name" "USD_TO_BRL_RATE" "value" "5.15")
+)) }}
+{{- end }}

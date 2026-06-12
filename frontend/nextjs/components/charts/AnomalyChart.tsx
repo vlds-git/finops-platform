@@ -15,7 +15,7 @@ export function AnomalyChart({ data, dates, anomalies, className }: AnomalyChart
   const scatterData = dates.map((date, i) => {
     const anomaly = anomalyMap.get(date);
     return anomaly ? [i, data[i]] : null;
-  }).filter(Boolean);
+  }).filter((item): item is number[] => item !== null);
 
   const option = {
     backgroundColor: 'transparent',

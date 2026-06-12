@@ -4,7 +4,6 @@ metadata:
   name: finops-ingress
   namespace: finops
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/rate-limit: "100"
 spec:
   ingressClassName: nginx
@@ -13,6 +12,13 @@ spec:
     http:
       paths:
       - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 3000
+      - path: /api
         pathType: Prefix
         backend:
           service:

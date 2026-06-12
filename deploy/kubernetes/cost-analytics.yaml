@@ -21,23 +21,43 @@ spec:
         env:
         - name: PORT
           value: "8082"
-        - name: POSTGRES_DSN
-          value: "postgres://finops:$(POSTGRES_PASSWORD)@postgres:5432/finops?sslmode=disable"
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
               name: finops-secrets
               key: postgres-password
+        - name: POSTGRES_DSN
+          value: "postgres://finops:$(POSTGRES_PASSWORD)@postgres:5432/finops?sslmode=disable"
         - name: CLICKHOUSE_ADDR
           valueFrom:
             configMapKeyRef:
               name: finops-config
               key: CLICKHOUSE_ADDR
+        - name: CLICKHOUSE_DB
+          valueFrom:
+            configMapKeyRef:
+              name: finops-config
+              key: CLICKHOUSE_DB
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: finops-config
+              key: CLICKHOUSE_USER
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: finops-secrets
+              key: clickhouse-password
         - name: KAFKA_BROKERS
           valueFrom:
             configMapKeyRef:
               name: finops-config
               key: KAFKA_BROKERS
+        - name: USD_TO_BRL_RATE
+          valueFrom:
+            configMapKeyRef:
+              name: finops-config
+              key: USD_TO_BRL_RATE
         livenessProbe:
           httpGet:
             path: /live

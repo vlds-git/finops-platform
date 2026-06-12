@@ -21,13 +21,13 @@ spec:
         env:
         - name: PORT
           value: "8083"
-        - name: POSTGRES_DSN
-          value: "postgres://finops:$(POSTGRES_PASSWORD)@postgres:5432/finops?sslmode=disable"
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
               name: finops-secrets
               key: postgres-password
+        - name: POSTGRES_DSN
+          value: "postgres://finops:$(POSTGRES_PASSWORD)@postgres:5432/finops?sslmode=disable"
         - name: KAFKA_BROKERS
           valueFrom:
             configMapKeyRef:

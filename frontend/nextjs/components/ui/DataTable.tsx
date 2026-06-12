@@ -15,7 +15,7 @@ interface DataTableProps<T> {
   className?: string;
 }
 
-export function DataTable<T extends Record<string, any>>({ columns, data, className }: DataTableProps<T>) {
+export function DataTable<T extends Record<string, unknown>>({ columns, data, className }: DataTableProps<T>) {
   return (
     <div className={cn("card overflow-hidden", className)}>
       <table className="w-full text-sm text-left">
@@ -33,7 +33,7 @@ export function DataTable<T extends Record<string, any>>({ columns, data, classN
             <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
               {columns.map((col) => (
                 <td key={col.key} className={cn("px-6 py-4", col.className)}>
-                  {col.render ? col.render(item) : item[col.key]}
+                  {col.render ? col.render(item) : String(item[col.key] ?? '')}
                 </td>
               ))}
             </tr>

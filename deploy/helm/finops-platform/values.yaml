@@ -8,6 +8,7 @@ image:
 # API Gateway
 gateway:
   enabled: true
+  replicaCount: 1
   image:
     repository: finops/api-gateway
     tag: latest
@@ -17,8 +18,10 @@ gateway:
   ingress:
     enabled: true
     className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
     hosts:
-      - host: finops.local
+      - host: api.finops.local
         paths:
           - path: /
             pathType: Prefix
@@ -30,13 +33,14 @@ gateway:
       cpu: 100m
       memory: 128Mi
   env:
-    JWT_SECRET: "finops-enterprise-secret-key"
+    JWT_SECRET: "finops-enterprise-secret-key-change-in-production"
     RATE_LIMIT_RPS: "100"
     RATE_LIMIT_BURST: "200"
 
 # Ingestion Service
 ingestion:
   enabled: true
+  replicaCount: 1
   image:
     repository: finops/ingestion-service
     tag: latest
@@ -52,10 +56,15 @@ ingestion:
       memory: 256Mi
   env:
     KAFKA_BROKERS: "kafka:9092"
+    HUAWEI_ACCESS_KEY: ""
+    HUAWEI_SECRET_KEY: ""
+    HUAWEI_OBS_ENDPOINT: ""
+    USD_TO_BRL_RATE: "5.15"
 
 # Cost Analytics
 costAnalytics:
   enabled: true
+  replicaCount: 1
   image:
     repository: finops/cost-analytics
     tag: latest
@@ -73,6 +82,7 @@ costAnalytics:
 # Alert Manager
 alertManager:
   enabled: true
+  replicaCount: 1
   image:
     repository: finops/alert-manager
     tag: latest
@@ -90,6 +100,7 @@ alertManager:
 # ML Services
 forecast:
   enabled: true
+  replicaCount: 1
   image:
     repository: finops/forecast-engine
     tag: latest
@@ -106,6 +117,7 @@ forecast:
 
 anomaly:
   enabled: true
+  replicaCount: 1
   image:
     repository: finops/anomaly-detection
     tag: latest
@@ -122,6 +134,7 @@ anomaly:
 
 recommendation:
   enabled: true
+  replicaCount: 1
   image:
     repository: finops/recommendation-engine
     tag: latest
@@ -139,6 +152,7 @@ recommendation:
 # Frontend
 frontend:
   enabled: true
+  replicaCount: 1
   image:
     repository: finops/frontend
     tag: latest
@@ -148,11 +162,20 @@ frontend:
   ingress:
     enabled: true
     className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
     hosts:
       - host: finops.local
         paths:
           - path: /
             pathType: Prefix
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
 
 # Infrastructure
 postgresql:

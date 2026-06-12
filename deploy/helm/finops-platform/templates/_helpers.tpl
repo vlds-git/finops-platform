@@ -47,3 +47,14 @@ Selector labels
 app.kubernetes.io/name: {{ include "finops.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Image helper
+*/}}
+{{- define "finops.image" -}}
+{{- if .Values.image.registry -}}
+{{ .Values.image.registry }}/{{ .repository }}:{{ .tag }}
+{{- else -}}
+{{ .repository }}:{{ .tag }}
+{{- end -}}
+{{- end }}

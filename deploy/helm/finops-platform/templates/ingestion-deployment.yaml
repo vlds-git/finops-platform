@@ -1,0 +1,6 @@
+{{- if .Values.ingestion.enabled }}
+{{- include "finops.deployment" (dict "Root" . "Name" "ingestion" "Component" "ingestion" "ValuesKey" "ingestion" "Port" 8081 "Env" (list
+  (dict "name" "KAFKA_BROKERS" "value" (printf "%s-kafka:9092" (include "finops.fullname" .)))
+  (dict "name" "USD_TO_BRL_RATE" "value" "5.15")
+)) }}
+{{- end }}

@@ -50,6 +50,17 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- Correção de erros de compilação nos serviços Go (`ingestion-service`, `alert-manager`)
+- Recriação dos arquivos `go.mod` com encoding limpo
+- Implementação de proxy reverso real no `api-gateway`
+- Correção do build do frontend Next.js (`QueryClientProvider`, rota raiz, Dockerfile, TS)
+- Aplicação da conversão USD→BRL nos serviços ML
+- Alinhamento do `docker-compose.yml`, `Makefile` e scripts de deploy
+- Completude do Helm chart com todos os serviços
+- Adição de manifests de infraestrutura no Kubernetes
+- Configuração de healthchecks e observability
+
 ### Planned
 - Integração Microsoft Entra ID / LDAP / Keycloak
 - Multi-tenant support

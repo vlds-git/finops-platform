@@ -1,14 +1,16 @@
 FROM golang:1.22-alpine AS builder
 WORKDIR /app
-COPY go.mod ./
 COPY . .
-RUN go mod tidy
+RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 
-FROM alpine:latest
+FROM alpine:3.19
 RUN apk --no-cache add ca-certificates wget curl unzip
-WORKDIR /root/
+RUN adduser -D -u 1000 app
+WORKDIR /home/app
 COPY --from=builder /app/main .
+RUN chown -R app:app /home/app
+USER app
 EXPOSE 8081
 HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --spider -q http://localhost:8081/health 2>/dev/null || curl -fsS http://localhost:8081/health

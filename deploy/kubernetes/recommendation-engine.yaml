@@ -26,9 +26,14 @@ spec:
             configMapKeyRef:
               name: finops-config
               key: CLICKHOUSE_ADDR
+        - name: USD_TO_BRL_RATE
+          valueFrom:
+            configMapKeyRef:
+              name: finops-config
+              key: USD_TO_BRL_RATE
         livenessProbe:
           httpGet:
-            path: /health
+            path: /live
             port: 8003
           initialDelaySeconds: 30
           periodSeconds: 10
