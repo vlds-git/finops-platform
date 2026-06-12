@@ -13,8 +13,10 @@ function parseJwt(token: string): User | null {
     return {
       id: parsed.user_id || parsed.sub || '',
       email: parsed.email || '',
-      roles: parsed.roles || [],
       name: parsed.name || parsed.email || '',
+      roles: parsed.roles || [],
+      active: true,
+      created_at: new Date().toISOString(),
     };
   } catch {
     return null;
