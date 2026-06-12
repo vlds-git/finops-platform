@@ -60,15 +60,16 @@ docker-compose.override.yml
 
 # Backups
 backups/
-*.sql
 *.dump
+
+# SQL migrations and schemas (keep tracked)
+!database/postgresql/migrations/*.sql
+!database/clickhouse/*.sql
 
 # Data
 *.csv
 *.parquet
 *.json
-!*/migrations/*.sql
-!*/clickhouse/*.sql
 !*.yml
 !*.yaml
 !*.json
