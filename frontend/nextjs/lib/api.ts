@@ -7,6 +7,13 @@ const getToken = () => {
   return null;
 };
 
+const getCurrency = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('finops-currency') || 'USD';
+  }
+  return 'USD';
+};
+
 const redirectToLogin = () => {
   if (typeof window !== 'undefined') {
     window.location.href = '/login';
@@ -25,6 +32,15 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // Inject currency preference into query params
+  if (config.method?.toLowerCase() === 'get' && config.params !== false) {
+    config.params = {
+      ...config.params,
+      currency: getCurrency(),
+    };
+  }
+
   return config;
 });
 

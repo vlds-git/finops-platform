@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS finops.costs_raw (
     billing_account_id String,
     service_name String,
     resource_type String,
+    resource_id String,
     region String,
     usage_quantity Float64,
     usage_unit String,

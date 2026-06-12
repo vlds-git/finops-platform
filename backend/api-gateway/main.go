@@ -71,13 +71,16 @@ func main() {
 	// Forecast
 	api.GET("/forecast", proxyTo("http://forecast-engine:8001"))
 	api.GET("/forecast/:period", proxyTo("http://forecast-engine:8001"))
+	api.POST("/forecast", proxyTo("http://forecast-engine:8001"))
 
 	// Anomalies
 	api.GET("/anomalies", proxyTo("http://anomaly-detection:8002"))
 	api.GET("/anomalies/:id", proxyTo("http://anomaly-detection:8002"))
+	api.POST("/anomalies", proxyTo("http://anomaly-detection:8002"))
 
 	// Recommendations
 	api.GET("/recommendations", proxyTo("http://recommendation-engine:8003"))
+	api.POST("/recommendations", proxyTo("http://recommendation-engine:8003"))
 	api.POST("/recommendations/:id/apply", proxyTo("http://recommendation-engine:8003"))
 
 	// Budgets

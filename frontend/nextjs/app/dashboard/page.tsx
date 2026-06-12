@@ -5,48 +5,46 @@ import { KPICard } from '@/components/ui/KPICard';
 import { TrendChart } from '@/components/charts/TrendChart';
 import { BarChart } from '@/components/charts/BarChart';
 import { PieChart } from '@/components/charts/PieChart';
-import { useExecutiveDashboard, useCostTrends } from '@/hooks/useCosts';
-import type { KPIData, CostTrend } from '@/types';
-
-const mockKPIs: KPIData[] = [
-  { name: 'Custo Total (30d)', value: 185000, unit: 'BRL', trend: 0.082, status: 'warning' },
-  { name: 'Forecast (30d)', value: 195000, unit: 'BRL', trend: 0.054, status: 'warning' },
-  { name: 'Economia Potencial', value: 32000, unit: 'BRL', trend: -0.153, status: 'good' },
-  { name: 'Budget Utilization', value: 0.72, unit: 'ratio', trend: 0.05, target: 0.80, status: 'good' },
-];
-
-const mockTrends: CostTrend[] = Array.from({ length: 30 }, (_, i) => ({
-  date: new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  cost: 5000 + i * 50 + Math.sin(i / 5) * 500 + Math.random() * 300,
-  usage: 100 + i * 2,
-}));
-
-const mockServices = [
-  { name: 'Compute', value: 85000 },
-  { name: 'Storage', value: 35000 },
-  { name: 'Network', value: 25000 },
-  { name: 'Database', value: 25000 },
-  { name: 'Others', value: 15000 },
-];
-
-const mockApps = [
-  { name: 'ERP', value: 45000 },
-  { name: 'CRM', value: 32000 },
-  { name: 'Data Lake', value: 28000 },
-  { name: 'E-commerce', value: 25000 },
-  { name: 'Others', value: 15000 },
-];
+import { useExecutiveDashboard, useCostTrends, useCosts } from '@/hooks/useCosts';
+import { useCurrency } from '@/contexts/CurrencyContext';
+import { useEffect, useState } from 'react';
+import type { KPIData } from '@/types';
 
 export default function DashboardPage() {
+  const { currency } = useCurrency();
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  useEffect(() => {
+    const end = new Date().toISOString().split('T')[0];
+    const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    setStartDate(start);
+    setEndDate(end);
+  }, []);
+
   const { data: dashboard } = useExecutiveDashboard();
-  const { data: trends } = useCostTrends();
+  const { data: trends } = useCostTrends('30');
+  const { data: costs } = useCosts(startDate, endDate);
+
+  const kpis: KPIData[] = [
+    { name: `Custo Total (30d)`, value: costs?.total_cost ?? dashboard?.total_cost ?? 0, unit: currency, trend: 0.05, status: 'warning' },
+    { name: 'Forecast (30d)', value: dashboard?.forecast_30d ?? 0, unit: currency, trend: 0.054, status: 'warning' },
+    { name: 'Economia Potencial', value: dashboard?.potential_savings ?? 0, unit: currency, trend: -0.153, status: 'good' },
+    { name: 'Budget Utilization', value: 0.72, unit: 'ratio', trend: 0.05, target: 0.80, status: 'good' },
+  ];
+
+  const topServices = dashboard?.top_services?.map((s) => ({ name: s.name, value: s.cost })) || [];
+  const topApps = dashboard?.top_applications?.map((a) => ({ name: a.name, value: a.cost })) || [];
+  const providerData = dashboard?.top_services
+    ? [{ name: 'Huawei', value: dashboard.top_services.reduce((acc, s) => acc + s.cost, 0) }]
+    : [];
 
   return (
     <MainLayout title="Dashboard Executivo">
       <div className="space-y-6">
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {mockKPIs.map((kpi) => (
+          {kpis.map((kpi) => (
             <KPICard key={kpi.name} data={kpi} />
           ))}
         </div>
@@ -55,11 +53,11 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Tendência de Custos</h3>
-            <TrendChart data={mockTrends} />
+            <TrendChart data={trends || []} />
           </div>
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Custos por Serviço</h3>
-            <BarChart data={mockServices} horizontal />
+            <BarChart data={topServices} horizontal />
           </div>
         </div>
 
@@ -67,18 +65,11 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Top Aplicações</h3>
-            <PieChart data={mockApps} />
+            <PieChart data={topApps} />
           </div>
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Custos por Provedor</h3>
-            <BarChart 
-              data={[
-                { name: 'Huawei', value: 85000 },
-                { name: 'Azure', value: 65000 },
-                { name: 'AWS', value: 35000 },
-              ]} 
-              color="#38bdf8"
-            />
+            <BarChart data={providerData} color="#38bdf8" />
           </div>
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-white mb-4">KPIs Estratégicos</h3>
@@ -97,7 +88,7 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <div className="h-2 bg-slate-700 rounded-full">
-                    <div 
+                    <div
                       className={`h-full rounded-full ${kpi.value >= kpi.target ? 'bg-emerald-500' : 'bg-amber-500'}`}
                       style={{ width: `${kpi.value}%` }}
                     />

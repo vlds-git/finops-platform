@@ -213,11 +213,15 @@ services:
     environment:
       PORT: 8081
       KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      POSTGRES_DSN: ${POSTGRES_DSN:-postgres://finops:finops@postgres:5432/finops?sslmode=disable}
       HUAWEI_ACCESS_KEY: ${HUAWEI_ACCESS_KEY:-}
       HUAWEI_SECRET_KEY: ${HUAWEI_SECRET_KEY:-}
       HUAWEI_OBS_ENDPOINT: ${HUAWEI_OBS_ENDPOINT:-}
       USD_TO_BRL_RATE: ${USD_TO_BRL_RATE:-5.15}
+      INGESTION_INTERVAL: ${INGESTION_INTERVAL:-5m}
     depends_on:
+      postgres:
+        condition: service_healthy
       kafka:
         condition: service_healthy
     networks:

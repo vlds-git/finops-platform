@@ -2,13 +2,14 @@
 
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ReactNode } from 'react';
+import { CurrencyProvider } from '@/contexts/CurrencyContext';
 
 const queryClient = new QueryClient();
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <CurrencyProvider>{children}</CurrencyProvider>
     </QueryClientProvider>
   );
 }

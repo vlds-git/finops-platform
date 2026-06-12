@@ -3,16 +3,20 @@ package main
 import (
 	"context"
 	"database/sql"
-		"log"
+	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/segmentio/kafka-go"
-	_ "github.com/lib/pq"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
+	"github.com/segmentio/kafka-go"
 )
 
 type CostAnalyticsService struct {
@@ -53,6 +57,30 @@ type Budget struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+type FocusRecord struct {
+	Provider           string            `json:"provider"`
+	BillingAccountID   string            `json:"billing_account_id"`
+	ServiceName        string            `json:"service_name"`
+	ResourceType       string            `json:"resource_type"`
+	ResourceID         string            `json:"resource_id"`
+	Region             string            `json:"region"`
+	UsageQuantity      float64           `json:"usage_quantity"`
+	UsageUnit          string            `json:"usage_unit"`
+	EffectiveCost      float64           `json:"effective_cost"`
+	EffectiveCostBRL   float64           `json:"effective_cost_brl"`
+	ListCost           float64           `json:"list_cost"`
+	ListCostBRL        float64           `json:"list_cost_brl"`
+	ContractedCost     float64           `json:"contracted_cost"`
+	ContractedCostBRL  float64           `json:"contracted_cost_brl"`
+	AmortizedCost      float64           `json:"amortized_cost"`
+	AmortizedCostBRL   float64           `json:"amortized_cost_brl"`
+	Date               string            `json:"date"`
+	Environment        string            `json:"environment"`
+	Application        string            `json:"application"`
+	BusinessUnit       string            `json:"business_unit"`
+	Tags               map[string]string `json:"tags"`
+}
+
 func main() {
 	pgConn := getEnv("POSTGRES_DSN", "postgres://finops:finops@postgres:5432/finops?sslmode=disable")
 	pg, err := sql.Open("postgres", pgConn)
@@ -83,6 +111,7 @@ func main() {
 
 	svc := &CostAnalyticsService{pg: pg, ch: chConn, kafkaRdr: kafkaRdr}
 	go svc.consumeKafka()
+	go svc.runDailyAggregator()
 
 	r := gin.Default()
 	r.GET("/health", healthHandler)
@@ -117,22 +146,105 @@ func main() {
 }
 
 func (s *CostAnalyticsService) consumeKafka() {
+	ctx := context.Background()
 	for {
-		msg, err := s.kafkaRdr.ReadMessage(context.Background())
+		msg, err := s.kafkaRdr.ReadMessage(ctx)
 		if err != nil {
 			log.Printf("[KAFKA] Read error: %v", err)
 			continue
 		}
-		log.Printf("[KAFKA] Message received: %s", string(msg.Key))
+
+		var rec FocusRecord
+		if err := json.Unmarshal(msg.Value, &rec); err != nil {
+			log.Printf("[KAFKA] Unmarshal error: %v", err)
+			continue
+		}
+
+		if err := s.insertRawCost(ctx, rec); err != nil {
+			log.Printf("[KAFKA] ClickHouse insert error: %v", err)
+			continue
+		}
+		log.Printf("[KAFKA] Persisted record: %s/%s/%s", rec.Provider, rec.ServiceName, rec.Date)
 	}
+}
+
+func (s *CostAnalyticsService) insertRawCost(ctx context.Context, rec FocusRecord) error {
+	if rec.Tags == nil {
+		rec.Tags = map[string]string{}
+	}
+	query := `
+		INSERT INTO costs_raw (
+			provider, billing_account_id, service_name, resource_type, resource_id, region,
+			usage_quantity, usage_unit, effective_cost, effective_cost_brl, list_cost, list_cost_brl,
+			contracted_cost, contracted_cost_brl, amortized_cost, amortized_cost_brl,
+			date, environment, application, business_unit, tags
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	return s.ch.AsyncInsert(ctx, query, false,
+		rec.Provider, rec.BillingAccountID, rec.ServiceName, rec.ResourceType, rec.ResourceID, rec.Region,
+		rec.UsageQuantity, rec.UsageUnit, rec.EffectiveCost, rec.EffectiveCostBRL, rec.ListCost, rec.ListCostBRL,
+		rec.ContractedCost, rec.ContractedCostBRL, rec.AmortizedCost, rec.AmortizedCostBRL,
+		rec.Date, rec.Environment, rec.Application, rec.BusinessUnit, rec.Tags,
+	)
+}
+
+func (s *CostAnalyticsService) runDailyAggregator() {
+	// Initial delay then every 2 minutes
+	time.Sleep(30 * time.Second)
+	s.aggregateDaily()
+
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.aggregateDaily()
+	}
+}
+
+func (s *CostAnalyticsService) aggregateDaily() {
+	query := `
+		INSERT INTO costs_daily
+		SELECT
+			provider,
+			service_name,
+			region,
+			date,
+			sum(effective_cost),
+			sum(effective_cost_brl),
+			sum(usage_quantity),
+			environment,
+			application,
+			business_unit
+		FROM costs_raw
+		WHERE date >= today() - 90
+		GROUP BY provider, service_name, region, date, environment, application, business_unit
+	`
+	if err := s.ch.Exec(context.Background(), query); err != nil {
+		log.Printf("[AGGREGATOR] Daily aggregation error: %v", err)
+	} else {
+		log.Printf("[AGGREGATOR] Daily costs refreshed")
+	}
+}
+
+func currencyColumn(c *gin.Context, usdCol, brlCol string) string {
+	currency := strings.ToUpper(c.DefaultQuery("currency", "USD"))
+	if currency == "BRL" {
+		return brlCol
+	}
+	return usdCol
 }
 
 func (s *CostAnalyticsService) getCosts(c *gin.Context) {
 	start := c.Query("start_date")
 	end := c.Query("end_date")
 	provider := c.Query("provider")
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
 
-	query := `SELECT sum(effective_cost), sum(amortized_cost), sum(list_cost), uniqExact(service_name), uniqExact(resource_id) FROM costs WHERE date BETWEEN ? AND ?`
+	if start == "" || end == "" {
+		start = time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+		end = time.Now().Format("2006-01-02")
+	}
+
+	query := fmt.Sprintf(`SELECT sum(%s), sum(amortized_cost), sum(list_cost), uniqExact(service_name), uniqExact(resource_id) FROM costs_raw WHERE date BETWEEN ? AND ?`, costCol)
 	args := []interface{}{start, end}
 	if provider != "" {
 		query += " AND provider = ?"
@@ -150,7 +262,8 @@ func (s *CostAnalyticsService) getCosts(c *gin.Context) {
 
 func (s *CostAnalyticsService) getTrends(c *gin.Context) {
 	period := c.DefaultQuery("period", "30")
-	query := `SELECT date, sum(effective_cost) as cost, sum(usage_quantity) as usage FROM costs WHERE date >= today() - interval ? day GROUP BY date ORDER BY date`
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	query := fmt.Sprintf(`SELECT date, sum(%s) as cost, sum(usage_quantity) as usage FROM costs_raw WHERE date >= today() - interval ? day GROUP BY date ORDER BY date`, costCol)
 	rows, err := s.ch.Query(context.Background(), query, period)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -169,7 +282,8 @@ func (s *CostAnalyticsService) getTrends(c *gin.Context) {
 }
 
 func (s *CostAnalyticsService) getByService(c *gin.Context) {
-	query := `SELECT service_name, sum(effective_cost) as cost, sum(usage_quantity) as usage FROM costs WHERE date >= today() - 30 GROUP BY service_name ORDER BY cost DESC`
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	query := fmt.Sprintf(`SELECT service_name, sum(%s) as cost, sum(usage_quantity) as usage FROM costs_raw WHERE date >= today() - 30 GROUP BY service_name ORDER BY cost DESC`, costCol)
 	rows, _ := s.ch.Query(context.Background(), query)
 	var results []gin.H
 	for rows.Next() {
@@ -183,7 +297,8 @@ func (s *CostAnalyticsService) getByService(c *gin.Context) {
 }
 
 func (s *CostAnalyticsService) getByApplication(c *gin.Context) {
-	query := `SELECT application, sum(effective_cost) as cost FROM costs WHERE date >= today() - 30 GROUP BY application ORDER BY cost DESC`
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	query := fmt.Sprintf(`SELECT application, sum(%s) as cost FROM costs_raw WHERE date >= today() - 30 GROUP BY application ORDER BY cost DESC`, costCol)
 	rows, _ := s.ch.Query(context.Background(), query)
 	var results []gin.H
 	for rows.Next() {
@@ -197,7 +312,8 @@ func (s *CostAnalyticsService) getByApplication(c *gin.Context) {
 }
 
 func (s *CostAnalyticsService) getByEnvironment(c *gin.Context) {
-	query := `SELECT environment, sum(effective_cost) as cost FROM costs WHERE date >= today() - 30 GROUP BY environment ORDER BY cost DESC`
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	query := fmt.Sprintf(`SELECT environment, sum(%s) as cost FROM costs_raw WHERE date >= today() - 30 GROUP BY environment ORDER BY cost DESC`, costCol)
 	rows, _ := s.ch.Query(context.Background(), query)
 	var results []gin.H
 	for rows.Next() {
@@ -211,7 +327,8 @@ func (s *CostAnalyticsService) getByEnvironment(c *gin.Context) {
 }
 
 func (s *CostAnalyticsService) getByBusinessUnit(c *gin.Context) {
-	query := `SELECT business_unit, sum(effective_cost) as cost FROM costs WHERE date >= today() - 30 GROUP BY business_unit ORDER BY cost DESC`
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	query := fmt.Sprintf(`SELECT business_unit, sum(%s) as cost FROM costs_raw WHERE date >= today() - 30 GROUP BY business_unit ORDER BY cost DESC`, costCol)
 	rows, _ := s.ch.Query(context.Background(), query)
 	var results []gin.H
 	for rows.Next() {
@@ -225,7 +342,8 @@ func (s *CostAnalyticsService) getByBusinessUnit(c *gin.Context) {
 }
 
 func (s *CostAnalyticsService) getByRegion(c *gin.Context) {
-	query := `SELECT region, sum(effective_cost) as cost FROM costs WHERE date >= today() - 30 GROUP BY region ORDER BY cost DESC`
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	query := fmt.Sprintf(`SELECT region, sum(%s) as cost FROM costs_raw WHERE date >= today() - 30 GROUP BY region ORDER BY cost DESC`, costCol)
 	rows, _ := s.ch.Query(context.Background(), query)
 	var results []gin.H
 	for rows.Next() {
@@ -239,7 +357,8 @@ func (s *CostAnalyticsService) getByRegion(c *gin.Context) {
 }
 
 func (s *CostAnalyticsService) getByProvider(c *gin.Context) {
-	query := `SELECT provider, sum(effective_cost) as cost FROM costs WHERE date >= today() - 30 GROUP BY provider ORDER BY cost DESC`
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	query := fmt.Sprintf(`SELECT provider, sum(%s) as cost FROM costs_raw WHERE date >= today() - 30 GROUP BY provider ORDER BY cost DESC`, costCol)
 	rows, _ := s.ch.Query(context.Background(), query)
 	var results []gin.H
 	for rows.Next() {
@@ -253,64 +372,137 @@ func (s *CostAnalyticsService) getByProvider(c *gin.Context) {
 }
 
 func (s *CostAnalyticsService) getKPIs(c *gin.Context) {
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	var total, forecast float64
+	row := s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 30", costCol))
+	row.Scan(&total)
+	row = s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 60 AND date < today() - 30", costCol))
+	var previous float64
+	row.Scan(&previous)
+
+	trend := 0.0
+	if previous > 0 {
+		trend = (total - previous) / previous
+	}
+	forecast = total * (1 + trend)
+
+	currency := strings.ToUpper(c.DefaultQuery("currency", "USD"))
 	kpis := []KPIData{
+		{Name: "Total Cost (30d)", Value: total, Unit: currency, Trend: trend, Status: statusForTrend(trend)},
+		{Name: "Forecast (next 30d)", Value: forecast, Unit: currency, Trend: trend, Status: statusForTrend(trend)},
 		{Name: "Cost Efficiency", Value: 0.85, Unit: "ratio", Trend: 0.03, Target: 0.90, Status: "warning"},
 		{Name: "Budget Utilization", Value: 0.72, Unit: "ratio", Trend: 0.05, Target: 0.80, Status: "good"},
-		{Name: "Cost per Application", Value: 12500, Unit: "USD", Trend: -0.02, Status: "good"},
-		{Name: "Cost per Environment", Value: 45000, Unit: "USD", Trend: 0.01, Status: "good"},
-		{Name: "Cost Trend (30d)", Value: 185000, Unit: "USD", Trend: 0.08, Status: "warning"},
-		{Name: "Savings Opportunities", Value: 32000, Unit: "USD", Trend: -0.15, Status: "good"},
 	}
 	c.JSON(http.StatusOK, kpis)
 }
 
+func statusForTrend(trend float64) string {
+	if trend > 0.05 {
+		return "warning"
+	}
+	return "good"
+}
+
 func (s *CostAnalyticsService) getExecutiveDashboard(c *gin.Context) {
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	currency := strings.ToUpper(c.DefaultQuery("currency", "USD"))
+
+	var totalCost float64
+	row := s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 30", costCol))
+	row.Scan(&totalCost)
+
+	topServices, _ := s.queryTop(fmt.Sprintf("SELECT service_name, sum(%s) FROM costs_raw WHERE date >= today() - 30 GROUP BY service_name ORDER BY sum(%s) DESC LIMIT 5", costCol, costCol))
+	topApps, _ := s.queryTop(fmt.Sprintf("SELECT application, sum(%s) FROM costs_raw WHERE date >= today() - 30 GROUP BY application ORDER BY sum(%s) DESC LIMIT 5", costCol, costCol))
+
 	c.JSON(http.StatusOK, gin.H{
-		"total_cost": 185000.00,
-		"forecast_30d": 195000.00,
-		"potential_savings": 32000.00,
-		"top_services": []gin.H{
-			{"name": "Compute", "cost": 85000},
-			{"name": "Storage", "cost": 35000},
-			{"name": "Network", "cost": 25000},
-		},
-		"top_applications": []gin.H{
-			{"name": "ERP", "cost": 45000},
-			{"name": "CRM", "cost": 32000},
-			{"name": "Data Lake", "cost": 28000},
-		},
-		"kpis": []gin.H{
-			{"name": "Cost Efficiency", "value": 0.85},
-			{"name": "Budget Health", "value": 0.92},
-		},
+		"total_cost":        totalCost,
+		"forecast_30d":      totalCost * 1.05,
+		"potential_savings": totalCost * 0.15,
+		"top_services":      topServices,
+		"top_applications":  topApps,
+		"currency":          currency,
 	})
 }
 
 func (s *CostAnalyticsService) getOperationalDashboard(c *gin.Context) {
+	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+
+	byService, _ := s.queryTop(fmt.Sprintf("SELECT service_name, sum(%s) FROM costs_raw WHERE date >= today() - 30 GROUP BY service_name ORDER BY sum(%s) DESC LIMIT 10", costCol, costCol))
+	byEnv, _ := s.queryTop(fmt.Sprintf("SELECT environment, sum(%s) FROM costs_raw WHERE date >= today() - 30 GROUP BY environment ORDER BY sum(%s) DESC LIMIT 10", costCol, costCol))
+	byRegion, _ := s.queryTop(fmt.Sprintf("SELECT region, sum(%s) FROM costs_raw WHERE date >= today() - 30 GROUP BY region ORDER BY sum(%s) DESC LIMIT 10", costCol, costCol))
+	byBU, _ := s.queryTop(fmt.Sprintf("SELECT business_unit, sum(%s) FROM costs_raw WHERE date >= today() - 30 GROUP BY business_unit ORDER BY sum(%s) DESC LIMIT 10", costCol, costCol))
+
 	c.JSON(http.StatusOK, gin.H{
-		"by_service":     []gin.H{{"name": "Compute", "cost": 85000}, {"name": "Storage", "cost": 35000}},
-		"by_project":     []gin.H{{"name": "Project Alpha", "cost": 62000}, {"name": "Project Beta", "cost": 48000}},
-		"by_environment": []gin.H{{"name": "Production", "cost": 120000}, {"name": "Staging", "cost": 35000}, {"name": "Development", "cost": 30000}},
-		"by_region":      []gin.H{{"name": "sa-brazil-1", "cost": 95000}, {"name": "east-us-1", "cost": 90000}},
-		"by_tags":        []gin.H{{"key": "team", "value": "platform", "cost": 75000}},
+		"by_service":     byService,
+		"by_environment": byEnv,
+		"by_region":      byRegion,
+		"by_business_unit": byBU,
 	})
 }
 
+func (s *CostAnalyticsService) queryTop(query string) ([]gin.H, error) {
+	rows, err := s.ch.Query(context.Background(), query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []gin.H
+	for rows.Next() {
+		var name string
+		var cost float64
+		if err := rows.Scan(&name, &cost); err != nil {
+			continue
+		}
+		if name == "" {
+			name = "(not set)"
+		}
+		results = append(results, gin.H{"name": name, "cost": cost})
+	}
+	return results, nil
+}
+
 func (s *CostAnalyticsService) getBudgets(c *gin.Context) {
+	currency := strings.ToUpper(c.DefaultQuery("currency", "USD"))
+	costCol := "effective_cost"
+	if currency == "BRL" {
+		costCol = "effective_cost_brl"
+	}
+
 	rows, err := s.pg.Query(`SELECT id, name, amount, spent, period, start_date, end_date, alert_threshold, provider, account_id, created_at FROM budgets`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer rows.Close()
+
 	var budgets []Budget
 	for rows.Next() {
 		var b Budget
 		rows.Scan(&b.ID, &b.Name, &b.Amount, &b.Spent, &b.Period, &b.StartDate, &b.EndDate, &b.AlertThreshold, &b.Provider, &b.AccountID, &b.CreatedAt)
+		// Compute spent from ClickHouse real data
+		b.Spent = s.computeSpent(b.Provider, b.AccountID, costCol)
 		b.Remaining = b.Amount - b.Spent
 		budgets = append(budgets, b)
 	}
 	c.JSON(http.StatusOK, budgets)
+}
+
+func (s *CostAnalyticsService) computeSpent(provider, accountID, costCol string) float64 {
+	query := fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 30", costCol)
+	args := []interface{}{}
+	if provider != "" && provider != "all" {
+		query += " AND provider = ?"
+		args = append(args, provider)
+	}
+	if accountID != "" && accountID != "all" {
+		query += " AND billing_account_id = ?"
+		args = append(args, accountID)
+	}
+	var spent float64
+	row := s.ch.QueryRow(context.Background(), query, args...)
+	row.Scan(&spent)
+	return spent
 }
 
 func (s *CostAnalyticsService) createBudget(c *gin.Context) {
@@ -354,7 +546,8 @@ func (s *CostAnalyticsService) getUsers(c *gin.Context) {
 	rows, _ := s.pg.Query(`SELECT id, email, name, roles, created_at FROM users`)
 	var users []gin.H
 	for rows.Next() {
-		var id, email, name, roles string
+		var id, email, name string
+		var roles []string
 		var created time.Time
 		rows.Scan(&id, &email, &name, &roles, &created)
 		users = append(users, gin.H{"id": id, "email": email, "name": name, "roles": roles, "created_at": created})
@@ -365,12 +558,15 @@ func (s *CostAnalyticsService) getUsers(c *gin.Context) {
 
 func (s *CostAnalyticsService) createUser(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email"`
-		Name     string `json:"name"`
-		Password string `json:"password"`
-		Roles    string `json:"roles"`
+		Email    string   `json:"email"`
+		Name     string   `json:"name"`
+		Password string   `json:"password"`
+		Roles    []string `json:"roles"`
 	}
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	_, err := s.pg.Exec(`INSERT INTO users (email, name, password_hash, roles) VALUES ($1, $2, $3, $4)`, req.Email, req.Name, req.Password, req.Roles)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -399,6 +595,15 @@ func liveHandler(c *gin.Context)   { c.JSON(http.StatusOK, gin.H{"status": "aliv
 func getEnv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func getEnvFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
 	}
 	return def
 }
