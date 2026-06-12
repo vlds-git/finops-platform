@@ -44,7 +44,7 @@ echo -n "  PostgreSQL: "
 pg_isready -h localhost -p 5432 &>/dev/null && echo "✓ OK" || echo "✗ FAIL"
 
 echo -n "  ClickHouse: "
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8123/ping &>/dev/null && echo "✓ OK" || echo "✗ FAIL"
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8124/ping &>/dev/null && echo "✓ OK" || echo "✗ FAIL"
 
 echo -n "  Redis: "
 redis-cli -h localhost ping &>/dev/null && echo "✓ OK" || echo "✗ FAIL"
