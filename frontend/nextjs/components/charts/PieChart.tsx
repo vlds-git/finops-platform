@@ -29,8 +29,7 @@ export function PieChart({ data, className, colors = ['#38bdf8', '#818cf8', '#c0
         })),
         label: {
           color: '#e2e8f0',
-          formatter: '{b}
-{d}%',
+          formatter: '{b}\n{d}%',
         },
         emphasis: {
           itemStyle: {
