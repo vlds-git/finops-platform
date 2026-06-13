@@ -27,16 +27,26 @@ export function useServices(startDate?: string, endDate?: string) {
   );
 }
 
+export interface RegionCost {
+  region: string;
+  cost: number;
+}
+
 export function useRegions(startDate?: string, endDate?: string) {
-  return useQuery<{ name: string; cost: number }[]>(
+  return useQuery<RegionCost[]>(
     ['regions', startDate, endDate],
     () => api.get('/costs/regions', { params: { start_date: startDate, end_date: endDate } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }
   );
 }
 
+export interface ProviderCost {
+  provider: string;
+  cost: number;
+}
+
 export function useProviders(startDate?: string, endDate?: string) {
-  return useQuery<{ name: string; cost: number }[]>(
+  return useQuery<ProviderCost[]>(
     ['providers', startDate, endDate],
     () => api.get('/costs/providers', { params: { start_date: startDate, end_date: endDate } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }

@@ -137,7 +137,7 @@ export default function DashboardPage() {
   }, [costs, previousCosts, dashboard, kpisApi, currency, totalCost, previousTotalCost]);
 
   const topServices = dashboard?.top_services?.map((s) => ({ name: s.name, value: s.cost })) || [];
-  const regionData = regions?.map((r) => ({ name: r.name || 'N/A', value: r.cost })) || [];
+  const regionData = regions?.map((r) => ({ name: r.region || 'N/A', value: r.cost })) || [];
 
   return (
     <MainLayout title="Dashboard Executivo" onPeriodChange={handlePeriodChange}>

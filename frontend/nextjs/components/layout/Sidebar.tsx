@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
+  BarChart3,
   TrendingUp,
   AlertTriangle,
   Zap,
