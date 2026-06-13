@@ -114,9 +114,12 @@ func main() {
 	}
 
 	kafkaWriter := &kafka.Writer{
-		Addr:     kafka.TCP(getEnv("KAFKA_BROKERS", "kafka:9092")),
-		Topic:    "cost.raw",
-		Balancer: &kafka.LeastBytes{},
+		Addr:         kafka.TCP(getEnv("KAFKA_BROKERS", "kafka:9092")),
+		Topic:        "cost.raw",
+		Balancer:     &kafka.LeastBytes{},
+		BatchSize:    1000,
+		BatchTimeout: 500 * time.Millisecond,
+		Async:        false,
 	}
 	defer kafkaWriter.Close()
 
@@ -274,7 +277,11 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 			continue
 		}
 
-		for _, rec := range records {
+		log.Printf("[INGESTION] Publishing %d records to Kafka", len(records))
+		batchSize := 1000
+		var messages []kafka.Message
+		sent := 0
+		for idx, rec := range records {
 			rec.Provider = provider
 			rec.BillingAccountID = accountID
 			rec.Environment = rec.Tags["environment"]
@@ -286,15 +293,31 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 				log.Printf("[INGESTION] JSON marshal failed: %v", err)
 				continue
 			}
-			err = s.kafkaWriter.WriteMessages(ctx, kafka.Message{
+			messages = append(messages, kafka.Message{
 				Key:   []byte(fmt.Sprintf("%s-%s", provider, accountID)),
 				Value: data,
 			})
-			if err != nil {
-				log.Printf("[INGESTION] Kafka write failed: %v", err)
-				continue
+
+			if len(messages) >= batchSize {
+				if err := s.kafkaWriter.WriteMessages(ctx, messages...); err != nil {
+					log.Printf("[INGESTION] Kafka batch write failed: %v", err)
+				} else {
+					sent += len(messages)
+				}
+				messages = messages[:0]
+			}
+			if idx > 0 && idx%10000 == 0 {
+				log.Printf("[INGESTION] Prepared %d/%d records for Kafka", idx, len(records))
 			}
 		}
+		if len(messages) > 0 {
+			if err := s.kafkaWriter.WriteMessages(ctx, messages...); err != nil {
+				log.Printf("[INGESTION] Kafka final batch write failed: %v", err)
+			} else {
+				sent += len(messages)
+			}
+		}
+		log.Printf("[INGESTION] Sent %d/%d records to Kafka for %s", sent, len(records), file)
 
 		s.saveCheckpoint(provider, accountID, file)
 		processed++
@@ -312,7 +335,7 @@ func (s *IngestionService) parseObject(filename, provider string, reader io.Read
 	ext := strings.ToLower(filepath.Ext(filename))
 	switch ext {
 	case ".zip":
-		return s.parseZIP(data, provider)
+		return s.parseZIP(data, filename, provider)
 	case ".csv":
 		return s.parseCSV(data, provider)
 	case ".parquet":
@@ -322,8 +345,25 @@ func (s *IngestionService) parseObject(filename, provider string, reader io.Read
 	}
 }
 
+func focusHeaderName(h string) string {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return ""
+	}
+	// Convert PascalCase / camelCase FOCUS headers to snake_case
+	var b strings.Builder
+	for i, r := range h {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			b.WriteByte('_')
+		}
+		b.WriteRune(r)
+	}
+	return strings.ToLower(b.String())
+}
+
 func (s *IngestionService) parseCSV(data []byte, provider string) ([]FocusRecord, error) {
 	cr := csv.NewReader(bytes.NewReader(data))
+	cr.ReuseRecord = false
 	rows, err := cr.ReadAll()
 	if err != nil {
 		return nil, err
@@ -337,46 +377,53 @@ func (s *IngestionService) parseCSV(data []byte, provider string) ([]FocusRecord
 	header := rows[0]
 	colIndex := make(map[string]int)
 	for i, h := range header {
-		colIndex[strings.ToLower(strings.TrimSpace(h))] = i
+		colIndex[focusHeaderName(h)] = i
 	}
 
-	for _, row := range rows[1:] {
+	totalRows := len(rows) - 1
+	for i, row := range rows[1:] {
 		if len(row) < len(header) {
 			continue
 		}
-		rec := FocusRecord{
-			InvoiceIssuer:    provider,
-			Date:             normalizeDate(getCol(row, colIndex, "date", getCol(row, colIndex, "charge_period_start", time.Now().Format("2006-01-02")))),
-			ServiceName:      getCol(row, colIndex, "service_name", ""),
-			ServiceCategory:  getCol(row, colIndex, "service_category", ""),
-			ResourceType:     getCol(row, colIndex, "resource_type", ""),
-			ResourceID:       getCol(row, colIndex, "resource_id", ""),
-			ResourceName:     getCol(row, colIndex, "resource_name", ""),
-			Region:           getCol(row, colIndex, "region", "sa-brazil-1"),
-			AvailabilityZone: getCol(row, colIndex, "availability_zone", ""),
-			UsageUnit:        getCol(row, colIndex, "usage_unit", ""),
-			ChargeType:       getCol(row, colIndex, "charge_type", ""),
-			ChargeDescription: getCol(row, colIndex, "charge_description", ""),
-			Tags:             parseTags(getCol(row, colIndex, "tags", "")),
+		if i > 0 && i%10000 == 0 {
+			log.Printf("[INGESTION] Parsed %d/%d rows", i, totalRows)
 		}
-		rec.UsageQuantity, _ = strconv.ParseFloat(getCol(row, colIndex, "usage_quantity", "0"), 64)
+
+		date := normalizeDate(getCol(row, colIndex, "charge_period_start", getCol(row, colIndex, "charge_period_end", getCol(row, colIndex, "billing_period_start", time.Now().Format("2006-01-02")))))
+
+		rec := FocusRecord{
+			InvoiceIssuer:     getCol(row, colIndex, "invoice_issuer_name", provider),
+			Date:              date,
+			ServiceName:       getCol(row, colIndex, "service_name", ""),
+			ServiceCategory:   getCol(row, colIndex, "service_category", ""),
+			ResourceType:      getCol(row, colIndex, "resource_type", ""),
+			ResourceID:        getCol(row, colIndex, "resource_id", ""),
+			ResourceName:      getCol(row, colIndex, "resource_name", ""),
+			Region:            getCol(row, colIndex, "region_name", getCol(row, colIndex, "region_id", "sa-brazil-1")),
+			AvailabilityZone:  getCol(row, colIndex, "availability_zone", ""),
+			UsageUnit:         getCol(row, colIndex, "consumed_unit", getCol(row, colIndex, "pricing_unit", "")),
+			ChargeType:        getCol(row, colIndex, "charge_category", ""),
+			ChargeDescription: getCol(row, colIndex, "charge_description", ""),
+			Tags:              parseTags(getCol(row, colIndex, "tags", "")),
+		}
+		rec.UsageQuantity, _ = strconv.ParseFloat(getCol(row, colIndex, "consumed_quantity", getCol(row, colIndex, "pricing_quantity", "0")), 64)
 
 		// Costs in USD
 		effCost, _ := strconv.ParseFloat(getCol(row, colIndex, "effective_cost", "0"), 64)
 		listCost, _ := strconv.ParseFloat(getCol(row, colIndex, "list_cost", "0"), 64)
 		contractedCost, _ := strconv.ParseFloat(getCol(row, colIndex, "contracted_cost", "0"), 64)
-		amortizedCost, _ := strconv.ParseFloat(getCol(row, colIndex, "amortized_cost", "0"), 64)
+		billedCost, _ := strconv.ParseFloat(getCol(row, colIndex, "billed_cost", "0"), 64)
 
 		rec.EffectiveCost = roundToTwo(effCost)
 		rec.ListCost = roundToTwo(listCost)
 		rec.ContractedCost = roundToTwo(contractedCost)
-		rec.AmortizedCost = roundToTwo(amortizedCost)
+		rec.AmortizedCost = roundToTwo(billedCost)
 
 		// BRL conversion
 		rec.EffectiveCostBRL = roundToTwo(effCost * usdToBRLRate)
 		rec.ListCostBRL = roundToTwo(listCost * usdToBRLRate)
 		rec.ContractedCostBRL = roundToTwo(contractedCost * usdToBRLRate)
-		rec.AmortizedCostBRL = roundToTwo(amortizedCost * usdToBRLRate)
+		rec.AmortizedCostBRL = roundToTwo(billedCost * usdToBRLRate)
 
 		records = append(records, rec)
 	}
@@ -426,6 +473,17 @@ func parseTags(raw string) map[string]string {
 	if raw == "" {
 		return tags
 	}
+	// Try JSON object first (common in FOCUS exports)
+	if strings.HasPrefix(strings.TrimSpace(raw), "{") {
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+			for k, v := range parsed {
+				tags[k] = v
+			}
+			return tags
+		}
+	}
+	// Fallback to key=value;key=value format
 	parts := strings.Split(raw, ";")
 	for _, p := range parts {
 		kv := strings.SplitN(p, "=", 2)
@@ -456,7 +514,7 @@ func getCol(row []string, colIndex map[string]int, name, def string) string {
 	return def
 }
 
-func (s *IngestionService) parseZIP(data []byte, provider string) ([]FocusRecord, error) {
+func (s *IngestionService) parseZIP(data []byte, filename, provider string) ([]FocusRecord, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, err
@@ -467,6 +525,7 @@ func (s *IngestionService) parseZIP(data []byte, provider string) ([]FocusRecord
 		if !strings.HasSuffix(strings.ToLower(f.Name), ".csv") {
 			continue
 		}
+		log.Printf("[ZIP] %s -> extracting CSV %s", filename, f.Name)
 		rc, err := f.Open()
 		if err != nil {
 			log.Printf("[ZIP] open file failed: %v", err)
@@ -478,11 +537,13 @@ func (s *IngestionService) parseZIP(data []byte, provider string) ([]FocusRecord
 			log.Printf("[ZIP] read file failed: %v", err)
 			continue
 		}
+		log.Printf("[ZIP] %s -> parsing %d bytes", f.Name, len(fileData))
 		recs, err := s.parseCSV(fileData, provider)
 		if err != nil {
 			log.Printf("[ZIP] parse CSV failed: %v", err)
 			continue
 		}
+		log.Printf("[ZIP] %s -> %d records parsed", f.Name, len(recs))
 		records = append(records, recs...)
 	}
 	return records, nil

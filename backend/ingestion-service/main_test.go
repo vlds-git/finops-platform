@@ -76,7 +76,7 @@ func TestCheckpointOperations(t *testing.T) {
 
 func TestParseCSV(t *testing.T) {
 	svc := &IngestionService{}
-	records := svc.parseCSV("test.csv", "huawei")
+	records := svc.parseCSV([]byte("test.csv"), "huawei")
 	assert.NotEmpty(t, records)
 	assert.Equal(t, "huawei", records[0].InvoiceIssuer)
 	assert.Equal(t, "Compute", records[0].ServiceName)
