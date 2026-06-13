@@ -4,9 +4,10 @@ import { useQuery } from 'react-query';
 import api from '@/lib/api';
 import type { AnomalyData } from '@/types';
 
-export function useAnomalies(provider: string, accountId: string, method = 'ensemble') {
+export function useAnomalies(startDate?: string, endDate?: string, provider?: string, accountId?: string) {
   return useQuery<AnomalyData>(
-    ['anomalies', provider, accountId, method],
-    () => api.post('/anomalies', { provider, account_id: accountId, method }).then(r => r.data)
+    ['anomalies', startDate, endDate, provider, accountId],
+    () => api.get('/anomalies', { params: { start_date: startDate, end_date: endDate, provider, account_id: accountId } }).then(r => r.data),
+    { enabled: !!startDate && !!endDate }
   );
 }

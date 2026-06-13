@@ -45,8 +45,11 @@ func main() {
 
 	// Health & Observability
 	r.GET("/health", healthHandler)
+	r.HEAD("/health", healthHandler)
 	r.GET("/ready", readyHandler)
+	r.HEAD("/ready", readyHandler)
 	r.GET("/live", liveHandler)
+	r.HEAD("/live", liveHandler)
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// Auth routes
@@ -72,21 +75,23 @@ func main() {
 	api.GET("/kpis", proxyTo("http://cost-analytics:8082"))
 	api.GET("/dashboard/executive", proxyTo("http://cost-analytics:8082"))
 	api.GET("/dashboard/operational", proxyTo("http://cost-analytics:8082"))
+	api.GET("/anomalies", proxyTo("http://cost-analytics:8082"))
+	api.GET("/accounts", proxyTo("http://cost-analytics:8082"))
 
-	// Forecast
-	api.GET("/forecast", proxyTo("http://forecast-engine:8001"))
-	api.GET("/forecast/:period", proxyTo("http://forecast-engine:8001"))
-	api.POST("/forecast", proxyTo("http://forecast-engine:8001"))
+	// Forecast (real data from cost-analytics)
+	api.GET("/forecast", proxyTo("http://cost-analytics:8082"))
+	api.GET("/forecast/:period", proxyTo("http://cost-analytics:8082"))
+	api.POST("/forecast", proxyTo("http://cost-analytics:8082"))
 
 	// Anomalies
 	api.GET("/anomalies", proxyTo("http://anomaly-detection:8002"))
 	api.GET("/anomalies/:id", proxyTo("http://anomaly-detection:8002"))
 	api.POST("/anomalies", proxyTo("http://anomaly-detection:8002"))
 
-	// Recommendations
-	api.GET("/recommendations", proxyTo("http://recommendation-engine:8003"))
-	api.POST("/recommendations", proxyTo("http://recommendation-engine:8003"))
-	api.POST("/recommendations/:id/apply", proxyTo("http://recommendation-engine:8003"))
+	// Recommendations (real data from cost-analytics)
+	api.GET("/recommendations", proxyTo("http://cost-analytics:8082"))
+	api.POST("/recommendations", proxyTo("http://cost-analytics:8082"))
+	api.POST("/recommendations/:id/apply", proxyTo("http://cost-analytics:8082"))
 
 	// Budgets
 	api.GET("/budgets", proxyTo("http://cost-analytics:8082"))
@@ -109,6 +114,8 @@ func main() {
 	// Admin
 	api.GET("/admin/users", proxyTo("http://cost-analytics:8082"))
 	api.POST("/admin/users", proxyTo("http://cost-analytics:8082"))
+	api.PUT("/admin/users/:id", proxyTo("http://cost-analytics:8082"))
+	api.DELETE("/admin/users/:id", proxyTo("http://cost-analytics:8082"))
 	api.GET("/admin/audit", proxyTo("http://cost-analytics:8082"))
 
 	port := getEnv("PORT", "8080")

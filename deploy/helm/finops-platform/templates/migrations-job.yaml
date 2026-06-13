@@ -1,0 +1,47 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "finops.fullname" . }}-migrations
+  labels:
+    {{- include "finops.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "finops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrations
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrations
+          image: {{ include "finops.image" (dict "Values" .Values "repository" .Values.migrations.image.repository "tag" .Values.migrations.image.tag) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: POSTGRES_DSN
+              value: {{ printf "postgres://%s:%s@%s-postgresql:5432/%s?sslmode=disable" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "finops.fullname" .) .Values.postgresql.auth.database | quote }}
+            - name: CLICKHOUSE_ADDR
+              value: {{ printf "%s-clickhouse:9000" (include "finops.fullname" .) | quote }}
+            - name: CLICKHOUSE_DB
+              value: "finops"
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.clickhouse.auth.username | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-secrets" (include "finops.fullname" .) | quote }}
+                  key: clickhouse-password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Applying PostgreSQL migrations..."
+              psql "$POSTGRES_DSN" -f /migrations/postgresql/001_initial_schema.sql
+              echo "Applying ClickHouse schema..."
+              clickhouse-client --host={{ printf "%s-clickhouse" (include "finops.fullname" .) }} --user="$CLICKHOUSE_USER" --password="$CLICKHOUSE_PASSWORD" --database="$CLICKHOUSE_DB" --multiquery < /migrations/clickhouse/schema.sql
+              echo "Migrations complete."
+{{- end }}

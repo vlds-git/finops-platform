@@ -40,7 +40,12 @@ spec:
               value: "{{ $port }}"
             {{- range .Env }}
             - name: {{ .name }}
+              {{- if .valueFrom }}
+              valueFrom:
+                {{- toYaml .valueFrom | nindent 16 }}
+              {{- else }}
               value: {{ .value | quote }}
+              {{- end }}
             {{- end }}
           livenessProbe:
             httpGet:

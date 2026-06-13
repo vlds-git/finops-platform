@@ -1,6 +1,11 @@
 {{- if .Values.ingestion.enabled }}
+{{- $pgDSN := printf "postgres://%s:%s@%s-postgresql:5432/%s?sslmode=disable" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "finops.fullname" .) .Values.postgresql.auth.database -}}
 {{- include "finops.deployment" (dict "Root" . "Name" "ingestion" "Component" "ingestion" "ValuesKey" "ingestion" "Port" 8081 "Env" (list
+  (dict "name" "POSTGRES_DSN" "value" $pgDSN)
   (dict "name" "KAFKA_BROKERS" "value" (printf "%s-kafka:9092" (include "finops.fullname" .)))
-  (dict "name" "USD_TO_BRL_RATE" "value" "5.15")
+  (dict "name" "HUAWEI_ACCESS_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" (printf "%s-secrets" (include "finops.fullname" .)) "key" "huawei-access-key")))
+  (dict "name" "HUAWEI_SECRET_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" (printf "%s-secrets" (include "finops.fullname" .)) "key" "huawei-secret-key")))
+  (dict "name" "HUAWEI_OBS_ENDPOINT" "value" (.Values.ingestion.env.HUAWEI_OBS_ENDPOINT | default ""))
+  (dict "name" "USD_TO_BRL_RATE" "value" (.Values.ingestion.env.USD_TO_BRL_RATE | default "5.15"))
 )) }}
 {{- end }}

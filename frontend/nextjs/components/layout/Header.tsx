@@ -1,26 +1,23 @@
 'use client';
 
 import { Search, Bell, DollarSign } from 'lucide-react';
-import { FilterBar } from '@/components/ui/FilterBar';
+import { FilterBar, type PeriodOption, type PeriodRange } from '@/components/ui/FilterBar';
 import { useCurrency } from '@/contexts/CurrencyContext';
 
 interface HeaderProps {
   title: string;
   showFilters?: boolean;
-  onPeriodChange?: (period: string) => void;
-  onProviderChange?: (provider: string) => void;
+  onPeriodChange?: (option: PeriodOption, range?: PeriodRange) => void;
 }
 
-export function Header({ title, showFilters = true, onPeriodChange, onProviderChange }: HeaderProps) {
+export function Header({ title, showFilters = true, onPeriodChange }: HeaderProps) {
   const { currency, setCurrency } = useCurrency();
 
   return (
     <header className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
       <div className="flex items-center gap-4">
         <h1 className="text-xl font-semibold text-white">{title}</h1>
-        {showFilters && (
-          <FilterBar onPeriodChange={onPeriodChange} onProviderChange={onProviderChange} />
-        )}
+        {showFilters && <FilterBar onPeriodChange={onPeriodChange} />}
       </div>
       <div className="flex items-center gap-3">
         <button

@@ -5,27 +5,21 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
-  BarChart3,
   TrendingUp,
   AlertTriangle,
   Zap,
   Wallet,
-  Bell,
   Users,
-  Cloud,
   LogOut,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard Executivo', icon: LayoutDashboard },
-  { href: '/operational', label: 'Dashboard Operacional', icon: BarChart3 },
   { href: '/forecast', label: 'Forecast', icon: TrendingUp },
   { href: '/anomalies', label: 'Anomalias', icon: AlertTriangle },
   { href: '/recommendations', label: 'Recomendações', icon: Zap },
   { href: '/budgets', label: 'Budgets', icon: Wallet },
-  { href: '/alerts', label: 'Alertas', icon: Bell },
   { href: '/users', label: 'Usuários', icon: Users },
-  { href: '/multicloud', label: 'Multi-Cloud', icon: Cloud },
 ];
 
 export function Sidebar() {

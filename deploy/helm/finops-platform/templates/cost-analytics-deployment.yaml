@@ -4,9 +4,9 @@
   (dict "name" "POSTGRES_DSN" "value" $pgDSN)
   (dict "name" "CLICKHOUSE_ADDR" "value" (printf "%s-clickhouse:9000" (include "finops.fullname" .)))
   (dict "name" "CLICKHOUSE_DB" "value" "finops")
-  (dict "name" "CLICKHOUSE_USER" "value" "default")
-  (dict "name" "CLICKHOUSE_PASSWORD" "value" "")
+  (dict "name" "CLICKHOUSE_USER" "value" .Values.clickhouse.auth.username)
+  (dict "name" "CLICKHOUSE_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" (printf "%s-secrets" (include "finops.fullname" .)) "key" "clickhouse-password")))
   (dict "name" "KAFKA_BROKERS" "value" (printf "%s-kafka:9092" (include "finops.fullname" .)))
-  (dict "name" "USD_TO_BRL_RATE" "value" "5.15")
+  (dict "name" "USD_TO_BRL_RATE" "value" (.Values.costAnalytics.env.USD_TO_BRL_RATE | default "5.15"))
 )) }}
 {{- end }}

@@ -177,6 +177,13 @@ frontend:
       cpu: 100m
       memory: 128Mi
 
+# Migrations job
+migrations:
+  enabled: true
+  image:
+    repository: finops/migrations
+    tag: latest
+
 # Infrastructure
 postgresql:
   enabled: true

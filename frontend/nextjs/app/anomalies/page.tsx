@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { AnomalyChart } from '@/components/charts/AnomalyChart';
 import { DataTable } from '@/components/ui/DataTable';
@@ -7,11 +8,45 @@ import { Badge } from '@/components/ui/Badge';
 import { useAnomalies } from '@/hooks/useAnomalies';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import type { AnomalyPoint } from '@/types';
+import type { PeriodOption, PeriodRange } from '@/components/ui/FilterBar';
 import { formatCurrency } from '@/lib/utils';
+
+function formatDateInput(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+function getRangeForOption(option: PeriodOption): PeriodRange {
+  const end = new Date();
+  const start = new Date();
+  switch (option) {
+    case '24h':
+      start.setHours(end.getHours() - 24);
+      break;
+    case '48h':
+      start.setHours(end.getHours() - 48);
+      break;
+    case '7d':
+      start.setDate(end.getDate() - 7);
+      break;
+    case '90d':
+      start.setDate(end.getDate() - 90);
+      break;
+    case '30d':
+    default:
+      start.setDate(end.getDate() - 30);
+  }
+  return { startDate: formatDateInput(start), endDate: formatDateInput(end) };
+}
 
 export default function AnomaliesPage() {
   const { currency } = useCurrency();
-  const { data: anomalies } = useAnomalies('huawei', 'hw-001');
+  const [range, setRange] = useState<PeriodRange>(() => getRangeForOption('30d'));
+
+  useEffect(() => {
+    setRange(getRangeForOption('30d'));
+  }, []);
+
+  const { data: anomalies } = useAnomalies(range.startDate, range.endDate, 'huawei');
 
   const anomalyList = anomalies?.anomalies || [];
   const dates = anomalyList.map((a) => a.date);
@@ -21,7 +56,7 @@ export default function AnomaliesPage() {
     { key: 'date', header: 'Data' },
     { key: 'value', header: 'Valor', render: (a: AnomalyPoint) => <span className="text-red-400 font-medium">{formatCurrency(a.value, currency)}</span> },
     { key: 'expected', header: 'Esperado', render: (a: AnomalyPoint) => <span className="text-slate-400">{formatCurrency(a.expected, currency)}</span> },
-    { key: 'deviation', header: 'Desvio', render: (a: AnomalyPoint) => <span className="text-red-400">+{a.expected > 0 ? ((a.deviation / a.expected) * 100).toFixed(0) : 0}%</span> },
+    { key: 'deviation', header: 'Desvio (Z)', render: (a: AnomalyPoint) => <span className="text-red-400">{a.deviation.toFixed(2)}σ</span> },
     { key: 'severity', header: 'Severidade', render: (a: AnomalyPoint) => (
       <Badge variant={a.severity === 'critical' ? 'danger' : a.severity === 'high' ? 'warning' : 'info'}>
         {a.severity}
@@ -32,7 +67,7 @@ export default function AnomaliesPage() {
   ];
 
   return (
-    <MainLayout title="Anomalias">
+    <MainLayout title="Anomalias" onPeriodChange={(_, newRange) => newRange && setRange(newRange)}>
       <div className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="card p-5 lg:col-span-2">
@@ -52,11 +87,9 @@ export default function AnomaliesPage() {
             </div>
 
             <div className="card p-5">
-              <h4 className="text-sm font-semibold text-white mb-3">Métodos Ativos</h4>
+              <h4 className="text-sm font-semibold text-white mb-3">Método Ativo</h4>
               <div className="flex gap-2 flex-wrap">
-                <Badge variant="success">Isolation Forest</Badge>
                 <Badge variant="success">Z-Score</Badge>
-                <Badge variant="success">Rolling Average</Badge>
               </div>
             </div>
           </div>

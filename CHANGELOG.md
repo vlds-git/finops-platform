@@ -5,6 +5,36 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Período customizável** no header: 24h, 48h, 7d, 30d, 90d e intervalo personalizado.
+- **Dashboard Executivo dinâmico**: KPIs reais, variação vs período anterior, custos por serviço e por região.
+- **Forecast real** via `cost-analytics` usando tendência linear sobre dados do ClickHouse.
+- **Anomalias reais** via `cost-analytics` usando Z-Score sobre custos diários.
+- **Recomendações reais** via `cost-analytics` baseadas nos serviços de maior custo.
+- **Budgets vinculados a accounts** com cálculo de spent no período do budget e alertas por threshold.
+- **CRUD completo de usuários** (PUT/DELETE) e integração frontend com backend.
+- **Endpoint `/accounts`** para listar contas cloud do PostgreSQL.
+- **HEAD /health** e `/metrics` básicos nos serviços Go para eliminar 404s de healthchecks.
+- **Helm Chart aprimorado**: credenciais ClickHouse e Huawei injetadas via Secret, job de migrations.
+
+### Changed
+- **Sidebar simplificada**: removidos Alertas, Multi-Cloud e Dashboard Operacional.
+- **Filtro de provider** substituído por título "Huawei Cloud" (ambiente Huawei-only).
+- **Conversão USD/BRL** via query param `currency` respeitada pelos endpoints de custos.
+- **API Gateway**: `/forecast`, `/anomalies` e `/recommendations` roteados para `cost-analytics` (dados reais).
+- **Backend `cost-analytics`**: todos os endpoints de custos respeitam `start_date`/`end_date` e `currency`.
+
+### Removed
+- Páginas frontend removidas: Alertas, Multi-Cloud, Dashboard Operacional.
+- Gráficos estáticos do Dashboard Executivo: Top Aplicações e Custos por Provedor.
+- Dependência dos serviços ML mockados para forecast, anomalias e recomendações.
+
+### Fixed
+- Erro `ClickHouse insert error: code: 16` resolvido com colunas BRL no schema.
+- 404s de `/metrics` e `HEAD /health` nos logs dos serviços.
+
 ## [1.0.0] - 2024-01-15
 
 ### Added
@@ -47,25 +77,3 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Redis para cache de sessões e rate limiting
 - PostgreSQL connection pooling
 - ClickHouse query optimization
-
-## [Unreleased]
-
-### Fixed
-- Correção de erros de compilação nos serviços Go (`ingestion-service`, `alert-manager`)
-- Recriação dos arquivos `go.mod` com encoding limpo
-- Implementação de proxy reverso real no `api-gateway`
-- Correção do build do frontend Next.js (`QueryClientProvider`, rota raiz, Dockerfile, TS)
-- Aplicação da conversão USD→BRL nos serviços ML
-- Alinhamento do `docker-compose.yml`, `Makefile` e scripts de deploy
-- Completude do Helm chart com todos os serviços
-- Adição de manifests de infraestrutura no Kubernetes
-- Configuração de healthchecks e observability
-
-### Planned
-- Integração Microsoft Entra ID / LDAP / Keycloak
-- Multi-tenant support
-- Cost allocation tagging automático
-- ML model retraining pipeline
-- Custom dashboard builder
-- API versioning v2
-- Mobile app companion

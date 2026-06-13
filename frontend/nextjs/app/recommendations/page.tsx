@@ -1,16 +1,51 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Badge } from '@/components/ui/Badge';
 import { useRecommendations, useApplyRecommendation } from '@/hooks/useRecommendations';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import type { RecommendationItem } from '@/types';
+import type { PeriodOption, PeriodRange } from '@/components/ui/FilterBar';
 import { formatCurrency } from '@/lib/utils';
-import { Zap, CheckCircle, XCircle, Info } from 'lucide-react';
+import { CheckCircle, XCircle, Info } from 'lucide-react';
+
+function formatDateInput(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+function getRangeForOption(option: PeriodOption): PeriodRange {
+  const end = new Date();
+  const start = new Date();
+  switch (option) {
+    case '24h':
+      start.setHours(end.getHours() - 24);
+      break;
+    case '48h':
+      start.setHours(end.getHours() - 48);
+      break;
+    case '7d':
+      start.setDate(end.getDate() - 7);
+      break;
+    case '90d':
+      start.setDate(end.getDate() - 90);
+      break;
+    case '30d':
+    default:
+      start.setDate(end.getDate() - 30);
+  }
+  return { startDate: formatDateInput(start), endDate: formatDateInput(end) };
+}
 
 export default function RecommendationsPage() {
   const { currency } = useCurrency();
-  const { data: recommendations } = useRecommendations('huawei', 'hw-001');
+  const [range, setRange] = useState<PeriodRange>(() => getRangeForOption('30d'));
+
+  useEffect(() => {
+    setRange(getRangeForOption('30d'));
+  }, []);
+
+  const { data: recommendations } = useRecommendations(range.startDate, range.endDate, 'huawei');
   const applyMutation = useApplyRecommendation();
 
   const recs = recommendations?.recommendations || [];
@@ -19,7 +54,7 @@ export default function RecommendationsPage() {
   const avgConfidence = recs.length > 0 ? recs.reduce((s, r) => s + r.confidence, 0) / recs.length : 0;
 
   return (
-    <MainLayout title="Recomendações">
+    <MainLayout title="Recomendações" onPeriodChange={(_, newRange) => newRange && setRange(newRange)}>
       <div className="space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

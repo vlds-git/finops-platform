@@ -58,6 +58,38 @@ A FinOps Enterprise Platform é uma solução de gestão financeira de cloud com
 
 ---
 
+## Lições Aprendidas - Ciclo de Pré-Produção
+
+### 1. Dados reais antes de tudo
+- A ingestão FOCUS da Huawei OBS passou a funcionar com endpoint virtual-hosted (`BucketLookupDNS`), prefixo correto (`daily-exports/Daily_Cost_Export_Focus1-0/`) e colunas BRL adicionadas ao ClickHouse.
+- Antes de investir em ML, garanta que `costs_raw` tenha dados reais, consistentes e com as colunas esperadas.
+
+### 2. Dashboards devem refletir dados reais
+- Removeu-se tudo que era estático ou não aplicável a um ambiente Huawei-only: Multi-Cloud, Alertas, Dashboard Operacional, Top Aplicações, Custos por Provedor.
+- KPIs, tendências, variações e rankings passaram a vir de queries no ClickHouse.
+
+### 3. Período e moeda são críticos
+- O filtro de período (24h/48h/7d/30d/90d/custom) e a conversão USD/BRL são esperados pelo usuário. Todos os endpoints de custos devem respeitar `start_date`, `end_date` e `currency`.
+
+### 4. ML precisa estar integrado ou ser removido
+- Os serviços Python de forecast/anomaly/recommendation estavam retornando dados sintéticos. Para a pré-produção, a lógica foi movida para o `cost-analytics` usando dados reais do ClickHouse.
+- Recomenda-se reintroduzir os modelos Python apenas quando integrados de fato ao ClickHouse.
+
+### 5. Budgets e alertas devem ser vinculados
+- Budgets agora calculam `spent` no período do budget, filtrando por `provider` e `billing_account_id`. Alertas ficam implícitos ao threshold de cada budget.
+
+### 6. Usuários precisam de segurança
+- CRUD de usuários foi completado, mas senhas ainda são armazenadas em plaintext no PostgreSQL. Antes da produção, adotar bcrypt/Argon2.
+
+### 7. Helm/Kubernetes precisam de secrets e migrations
+- O Helm chart foi ajustado para injetar `CLICKHOUSE_PASSWORD`, `HUAWEI_ACCESS_KEY` e `HUAWEI_SECRET_KEY` via Secret.
+- Adicionou-se um Job de migrations (`post-install,post-upgrade`) para aplicar schemas do PostgreSQL e ClickHouse automaticamente.
+
+### 8. Healthchecks geram ruído se endpoints forem GET-only
+- Adicionar `HEAD /health` e `/metrics` aos serviços Go eliminou logs de 404 causados por `wget --spider` e Prometheus.
+
+---
+
 ## Primeiro Deploy
 
 ### Docker Compose
