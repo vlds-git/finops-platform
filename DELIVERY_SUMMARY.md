@@ -1,90 +1,102 @@
-# FinOps Enterprise Platform - Entrega Completa
+# FinOps Enterprise Platform - Resumo de Entrega
 
 ## Visão Geral
 
-Plataforma FinOps Enterprise moderna, escalável, segura e pronta para produção.
+Plataforma FinOps Enterprise para gestão financeira de cloud **Huawei-only**, consumindo exportações FOCUS 1.0 do OBS e exibindo dashboards dinâmicos. Esta versão consolida funcionalidades de forecast, anomalias e recomendações no `cost-analytics` para garantir dados reais no frontend.
 
-## Correções Aplicadas (Deploy Limpo)
+> **Status:** Pré-produção. Itens pendentes de segurança e infraestrutura estão no `ROADMAP.md`.
+
+---
+
+## Correções e Melhorias Aplicadas
 
 ### Backend Go
-- ✅ `ingestion-service`: correção de compilação (parser ZIP implementado, dependência OBS adicionada, USD→BRL aplicado)
-- ✅ `alert-manager`: correção de compilação (import removido, context adicionado, tratamento de erros)
-- ✅ `api-gateway`: proxy reverso real implementado, parsing correto de env vars
-- ✅ Todos os `go.mod` recriados com UTF-8 limpo
-- ✅ Dockerfiles atualizados (Alpine 3.19, `go mod download`, usuário não-root)
+- ✅ `ingestion-service`: parser FOCUS funcional, download ZIP/CSV do OBS Huawei, publicação Kafka, checkpoints, reprocessamento.
+- ✅ `cost-analytics`: endpoints de custos respeitam `start_date`, `end_date` e `currency`; agregação diária; CRUD de budgets e usuários; forecast/anomalies/recommendations a partir do ClickHouse.
+- ✅ `api-gateway`: proxy reverso, novas rotas `/accounts`, `/forecast`, `/anomalies`, `/recommendations`, PUT/DELETE `/admin/users/:id`.
+- ✅ `alert-manager`: backend mantido, integração futura aos budgets.
+- ✅ Health checks (`/health`, `/ready`, `/live`, `/metrics`) e suporte a `HEAD /health` nos serviços Go.
 
 ### Frontend Next.js
-- ✅ `QueryClientProvider` adicionado
-- ✅ Rota raiz `/` redirecionando para `/login`
-- ✅ Dockerfile corrigido (`npm install`, `NEXT_PUBLIC_API_URL` via build arg, `public/` garantido)
-- ✅ Dependências não utilizadas removidas
-- ✅ Proteção SSR em `lib/api.ts`
-- ✅ Tipagem TypeScript corrigida
+- ✅ Sidebar reduzida para 6 páginas (Dashboard, Forecast, Anomalias, Recomendações, Budgets, Usuários).
+- ✅ Header com seletor de período (24h/48h/7d/30d/90d/custom) e botão USD/BRL.
+- ✅ Dashboard Executivo com KPIs reais, variação vs período anterior, custos por serviço/região.
+- ✅ Budgets com criação, edição, exclusão e vínculo a account.
+- ✅ Usuários com CRUD completo.
+- ✅ Forecast, Anomalias e Recomendações usando dados reais.
 
 ### ML Python
-- ✅ USD→BRL aplicado em `forecast-engine`, `anomaly-detection`, `recommendation-engine`
-- ✅ Imports não utilizados removidos
-- ✅ Validação de `sensitivity`/`window` no anomaly
-- ✅ Dockerfiles atualizados com `wget`/`curl` para healthchecks
+- ⚠️ Serviços Python (`forecast-engine`, `anomaly-detection`, `recommendation-engine`) estão **em standby**.
+- ✅ Funcionalidades equivalentes implementadas no `cost-analytics` com dados reais do ClickHouse.
+- 🔄 Reintegração dos modelos avançados está no `ROADMAP.md`.
 
 ### Infraestrutura
-- ✅ `docker-compose.yml` na raiz corrigido (healthchecks, dependências, build args, variáveis)
-- ✅ `Makefile` e scripts apontando para `docker-compose.yml` na raiz
-- ✅ `.env.example` sincronizado
-- ✅ Schemas SQL ajustados (datas, UUID defaults)
-- ✅ Prometheus, Loki e Grafana configurados com healthchecks e dashboards
+- ✅ `docker-compose.yml` na raiz funcional com healthchecks e observabilidade (Prometheus, Grafana, Loki).
+- ✅ Schemas ClickHouse atualizados com colunas BRL.
+- ✅ `Makefile` e scripts sincronizados.
 
 ### Helm
-- ✅ Templates adicionados para todos os serviços (ingestion, cost-analytics, alert-manager, forecast, anomaly, recommendation, frontend)
-- ✅ Helper de imagem corrigido
-- ✅ Ingress separado para API e frontend
-- ✅ Secrets expandidos
+- ✅ Templates para todos os serviços.
+- ✅ Secret expandido com `jwt-secret`, `postgres-password`, `clickhouse-password`, `huawei-access-key`, `huawei-secret-key`.
+- ✅ `cost-analytics` e `ingestion` lendo credenciais do Secret.
+- ✅ Job de migrations (`post-install,post-upgrade`) para PostgreSQL e ClickHouse.
+- ⚠️ TLS, NetworkPolicy, PDB e ServiceAccount no roadmap.
 
 ### Kubernetes
-- ✅ Manifests de infraestrutura adicionados (postgres, clickhouse, redis, kafka)
-- ✅ Frontend adicionado
-- ✅ Probes padronizadas (`/live` para liveness)
-- ✅ Variáveis de ambiente e secrets expandidos
-- ✅ Ingress atualizado para separar frontend e API
+- ✅ Manifests base de infraestrutura e aplicação.
+- ✅ Probes padronizadas.
+- ⚠️ Observabilidade, backup e GitOps no roadmap.
+
+---
 
 ## Deploy
 
 ```bash
 # Docker Compose (desenvolvimento)
-make up
+docker compose up -d --build
 
-# Kubernetes
-make deploy-k8s
-
-# Helm
-make deploy-helm
+# Helm (produção)
+helm install finops deploy/helm/finops-platform \
+  --namespace finops --create-namespace \
+  -f production-values.yaml --wait --timeout 600s
 
 # Diagnóstico
-make test
 ./scripts/diagnose.sh
 ```
+
+---
 
 ## Documentação
 
 | Documento | Descrição |
 |-----------|-----------|
 | README.md | Visão geral e quick start |
-| ARCHITECTURE.md | Arquitetura completa com diagramas Mermaid |
-| RUNBOOK.md | Operação diária, troubleshooting, DR, backup |
-| ADMIN_GUIDE.md | Como criar usuários, budgets, alertas, contas cloud |
-| DEPLOY_GUIDE.md | Deploy Docker, K8s, Helm passo a passo |
-| TROUBLESHOOTING.md | Guia detalhado de troubleshooting por serviço |
-| UI-ARCHITECTURE.md | Design system, fluxos, estrutura de telas |
+| ARCHITECTURE.md | Arquitetura atual com diagramas Mermaid |
+| RUNBOOK.md | Operação diária, lições aprendidas, troubleshooting, DR |
+| ADMIN_GUIDE.md | Usuários, budgets, contas cloud, OBS |
+| DEPLOY_GUIDE.md | Docker, K8s, Helm passo a passo |
+| TROUBLESHOOTING.md | Diagnóstico por serviço |
+| UI-ARCHITECTURE.md | Design system, fluxos, 6 telas principais |
 | CHANGELOG.md | Versões e mudanças |
+| ROADMAP.md | Melhorias futuras priorizadas |
 | DELIVERY_SUMMARY.md | Este arquivo |
+
+---
 
 ## Checklist de Conformidade
 
-- [x] Código compila e executa
-- [x] Docker Compose funcional na raiz
-- [x] Helm chart completo
-- [x] Kubernetes manifests completos com infraestrutura
-- [x] Health checks em todos os serviços
-- [x] USD→BRL implementado
-- [x] Frontend buildável
-- [x] Documentação atualizada
+- [x] Ingestão de dados reais do OBS Huawei funcionando
+- [x] Dashboards dinâmicos baseados no ClickHouse
+- [x] Conversão USD/BRL funcional
+- [x] Budgets vinculados a accounts
+- [x] CRUD de usuários funcional
+- [x] Health checks e `/metrics` nos serviços
+- [x] Helm chart com secrets e migrations
+- [x] Documentação atualizada para estado atual
+- [ ] Hash de senhas (bcrypt/Argon2)
+- [ ] Login do gateway contra PostgreSQL
+- [ ] TLS no Ingress
+- [ ] NetworkPolicies e PodSecurity
+- [ ] CI/CD e GitOps
+- [ ] Backup automatizado
+- [ ] ML Python integrado ao ClickHouse

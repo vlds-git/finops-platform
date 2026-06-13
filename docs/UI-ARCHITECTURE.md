@@ -37,138 +37,105 @@
 ┌─────────────────────────────────────┐
 │  [Logo] FinOps Enterprise           │
 ├─────────────────────────────────────┤
-│  🏠 Dashboard                       │
-│    ├─ Executivo                     │
-│    └─ Operacional                   │
-│  📊 Analytics                       │
-│    ├─ Custos por Serviço            │
-│    ├─ Custos por Projeto            │
-│    ├─ Custos por Ambiente           │
-│    ├─ Custos por Região             │
-│    └─ Tags                          │
+│  🏠 Dashboard Executivo             │
 │  🔮 Forecast                        │
 │  ⚠️ Anomalias                       │
 │  💡 Recomendações                   │
 │  💰 Budgets                         │
-│  🔔 Alertas                         │
-│  ☁️ Multi-Cloud                     │
-│    ├─ Huawei Cloud                  │
-│    ├─ Azure                         │
-│    └─ AWS                           │
 │  👥 Usuários                        │
-│  ⚙️ Configurações                   │
 ├─────────────────────────────────────┤
 │  [Avatar] Usuário ▼                 │
 └─────────────────────────────────────┘
 ```
 
+> Foram removidos do menu: Dashboard Operacional, Alertas, Multi-Cloud (Azure/AWS) e Configurações. O ambiente atual é **Huawei-only**.
+
 #### Topbar (Fixa, 64px)
 - Título da página atual
-- Filtros globais (Período, Cloud, Ambiente, BU)
+- Seletor de período (24h, 48h, 7d, 30d, 90d, custom)
+- Botão de moeda (USD/BRL)
 - Botão de notificações (badge com contador)
-- Botão de tema (dark/light)
-- Avatar do usuário com dropdown
+- Botão de busca
+
+> O seletor de provider foi removido; o ambiente é Huawei Cloud. Filtros adicionais por account podem ser adicionados futuramente.
 
 ### Fluxos de Navegação
 
 #### Fluxo Principal: Dashboard Executivo → Detalhamento
 1. Usuário acessa Dashboard Executivo
-2. Visualiza KPIs estratégicos (cards superiores)
-3. Clica em "Top Serviços" → navega para Analytics por Serviço
-4. Clica em "Top Aplicações" → navega para Analytics por Projeto
-5. Clica em "Forecast" → navega para Forecast com o período pré-selecionado
+2. Visualiza KPIs reais (custo total, forecast, serviços, recursos)
+3. Clica em "Custos por Serviço" → visualiza ranking no próprio dashboard
+4. Clica em "Custos por Região" → visualiza distribuição regional
+5. Seleciona outro período no header → todos os widgets recarregam
 
 #### Fluxo: Anomalias → Recomendações
 1. Usuário acessa Anomalias
-2. Visualiza timeline de anomalias
-3. Clica em anomalia específica → modal com detalhes
-4. Botão "Ver Recomendações" → navega para Recomendações filtradas
+2. Visualiza timeline de anomalias baseadas em Z-Score
+3. Clica em anomalia específica → visualiza detalhes na tabela
+4. Navega para Recomendações para ver oportunidades de economia
 
-#### Fluxo: Budgets → Alertas
+#### Fluxo: Budgets
 1. Usuário acessa Budgets
-2. Visualiza orçado vs realizado
-3. Clica em budget com alerta → navega para Alertas filtrados
+2. Visualiza orçado vs realizado por account
+3. Cria/editou um budget vinculado a uma account
+4. Quando `spent > threshold`, o status muda para Warning/Over Budget
+
+> Alertas serão reintroduzidos de forma integrada aos budgets (ver `ROADMAP.md`). Não há página de Alertas no momento.
 
 ### Estrutura das Telas
+
+A aplicação possui **6 telas principais** após a simplificação para ambiente Huawei-only.
 
 #### 1. Dashboard Executivo
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ [Sidebar] │ [Topbar: Dashboard Executivo | Filtros Globais]│
+│ [Sidebar] │ [Topbar: Dashboard Executivo | Período | USD/BRL]│
 │           ├───────────────────────────────────────────────┤
 │           │ [KPI Cards: 4 colunas]                        │
 │           │ ┌────────┐┌────────┐┌────────┐┌────────┐      │
-│           │ │Custo   ││Forecast││Economia││Efficien│      │
-│           │ │Total   ││30d     ││Potencial││cy      │      │
-│           │ │$1.2M   ││$1.3M   ││$180K   ││85%     │      │
+│           │ │Custo   ││Forecast││Serviços││Recursos│      │
+│           │ │Total   ││30d     ││Ativos  ││Rastread│      │
+│           │ │$1.2M   ││$1.3M   ││142     ││12K     │      │
 │           │ └────────┘└────────┘└────────┘└────────┘      │
-│           │ [Gráfico Principal: Trend de Custos]          │
-│           │ ┌─────────────────────────────────────┐       │
-│           │ │  Line Chart (12 meses)              │       │
-│           │ └─────────────────────────────────────┘       │
-│           │ [Top Serviços]    [Top Aplicações]            │
-│           │ ┌─────────────┐  ┌─────────────┐              │
-│           │ │ Bar Chart   │  │ Bar Chart   │              │
-│           │ └─────────────┘  └─────────────┘              │
-│           │ [Distribuição por Cloud]                      │
-│           │ ┌─────────────────────────────────────┐       │
-│           │ │ Pie/Donut Chart                     │       │
-│           │ └─────────────────────────────────────┘       │
+│           │ [Tendência de Custos]  [Custos por Serviço]   │
+│           │ ┌─────────────┐  ┌──────────────────────┐     │
+│           │ │ Line Chart  │  │ Horizontal Bar Chart │     │
+│           │ └─────────────┘  └──────────────────────┘     │
+│           │ [Custos por Região]  [KPIs Estratégicos]      │
+│           │ ┌─────────────┐  ┌──────────────────────┐     │
+│           │ │ Bar Chart   │  │ Progress Bars        │     │
+│           │ └─────────────┘  └──────────────────────┘     │
 └───────────┴─────────────────────────────────────────────────┘
 ```
 
-#### 2. Dashboard Operacional
-- Tabela detalhada de custos
-- Filtros avançados (Serviço, Projeto, Ambiente, Região, Tags)
-- Drill-down por hierarquia
-- Exportação CSV/Excel
+#### 2. Forecast
+- Seletor de horizonte: 30 / 60 / 90 dias
+- Gráfico de linha com valores históricos + previsão
+- Resumo: modelo (Linear Trend), confiança, previsão total
+- Dados reais do ClickHouse via `cost-analytics`
 
-#### 3. Forecast
-- Tabs: 30 dias / 90 dias / 12 meses
-- Gráfico de linha com banda de confiança
-- Tabela com valores previstos vs histórico
-- Indicadores de tendência (↑/↓)
+#### 3. Anomalias
+- Timeline de anomalias baseadas em Z-Score
+- Resumo: total, impacto, baseline, desvio padrão
+- Tabela com data, valor, esperado, desvio, severidade
 
-#### 4. Anomalias
-- Timeline vertical de anomalias detectadas
-- Cards com severidade (Critical/Warning/Info)
-- Impacto financeiro estimado
-- Filtros por período, serviço, cloud
+#### 4. Recomendações
+- Cards de oportunidade geradas a partir dos serviços de maior custo
+- Resumo: economia potencial, oportunidades, prioridade alta, confiança média
+- Botões "Aplicar" / "Ignorar"
 
-#### 5. Recomendações
-- Cards de oportunidade com:
-  - Tipo (Rightsizing, Idle, Storage, Savings)
-  - Justificativa técnica
-  - Estimativa financeira
-  - Botão "Aplicar" / "Ignorar"
+#### 5. Budgets
+- Cards de total orçado, realizado e variação
+- Tabela com nome, provider, account, período, valores e status
+- Modal para criar/editar budget vinculado a uma account
+- Status: On Track / Warning / Over Budget
 
-#### 6. Budgets
-- Cards de budgets ativos
-- Gráfico de progresso (orçado vs realizado)
-- Indicador de tendência (on-track / at-risk / over-budget)
-- Tabela de histórico
+#### 6. Usuários
+- Tabela de usuários com nome, email, perfis, status, último acesso
+- Modal para criar/editar usuário
+- Perfis: admin, analyst, viewer
 
-#### 7. Alertas
-- Tabela de alertas com:
-  - Status (Active/Resolved/Acknowledged)
-  - Severidade
-  - Regra
-  - Destinatários
-  - Timestamp
-- Botão para criar nova regra
-
-#### 8. Multi-Cloud
-- Tabs: Huawei Cloud / Azure / AWS
-- Cards de contas conectadas
-- Status de sincronização
-- Última ingestão
-- Ações: Sincronizar, Configurar, Desconectar
-
-#### 9. Usuários
-- Tabela de usuários
-- Colunas: Nome, Email, Perfil, Status, Último Acesso
-- Botão: Adicionar, Editar, Desativar
-- Modal de permissões granulares
+> Telas removidas: Dashboard Operacional, Alertas, Multi-Cloud. Podem ser reintroduzidas futuramente conforme `ROADMAP.md`.
 
 ### Componentes Reutilizáveis
 

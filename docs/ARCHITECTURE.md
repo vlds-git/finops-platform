@@ -2,18 +2,18 @@
 
 ## Visão Geral
 
-Plataforma modular para gestão financeira de cloud multi-provedor.
+Plataforma modular para gestão financeira de cloud, atualmente operando em ambiente **Huawei-only** via exportações FOCUS 1.0 armazenadas no OBS.
 
 ## Diagrama de Arquitetura
 
 ```mermaid
 graph TB
     subgraph "Frontend"
-        FE[Next.js / HTML Preview]
+        FE[Next.js 14 - 6 páginas]
     end
 
     subgraph "API Gateway"
-        GW[Gin + JWT + RBAC]
+        GW[Gin + JWT + RBAC + Rate Limit]
     end
 
     subgraph "Core Services"
@@ -22,10 +22,10 @@ graph TB
         AL[Alert Manager]
     end
 
-    subgraph "ML Engines"
-        FC[Forecast Engine]
-        AN[Anomaly Detection]
-        REC[Recommendation Engine]
+    subgraph "ML Engines (futuro)"
+        FC[Forecast Engine Python]
+        AN[Anomaly Detection Python]
+        REC[Recommendation Engine Python]
     end
 
     subgraph "Data Layer"
@@ -37,34 +37,28 @@ graph TB
 
     subgraph "External"
         OBS[Huawei OBS]
-        AZ[Azure]
-        AWS[AWS]
     end
 
     FE --> GW
     GW --> ING
     GW --> CA
     GW --> AL
-    GW --> FC
-    GW --> AN
-    GW --> REC
 
     ING --> OBS
     ING --> KF
     KF --> CA
-    KF --> FC
-    KF --> AN
-    KF --> REC
 
     CA --> CH
     CA --> PG
-    FC --> CH
-    AN --> CH
-    REC --> CH
+    CA -.->|forecast / anomalies / recommendations| CH
     AL --> PG
-    AL --> RD
+    AL --> KF
     GW --> PG
     GW --> RD
+
+    FC -.->|em standby| CH
+    AN -.->|em standby| CH
+    REC -.->|em standby| CH
 ```
 
 ## Fluxo FOCUS
@@ -77,14 +71,14 @@ sequenceDiagram
     participant CA as Cost Analytics
     participant CH as ClickHouse
 
-    OBS->>ING: CSV/Parquet Export
+    OBS->>ING: ZIP/CSV FOCUS 1.0 Export
     ING->>ING: Download Incremental
-    ING->>ING: Parse FOCUS
-    ING->>ING: Normalização Multi-Cloud
-    ING->>KF: cost.events
+    ING->>ING: Parse CSV (PascalCase -> snake_case)
+    ING->>ING: Normalização e conversão USD -> BRL
+    ING->>KF: cost.raw
     KF->>CA: Consume
-    CA->>CH: Insert Partitions
-    CA->>CH: Materialized Views
+    CA->>CH: Insert costs_raw
+    CA->>CH: Aggregate costs_daily
 ```
 
 ## Fluxo OBS
@@ -128,42 +122,32 @@ graph LR
     C4 --> T5[recommendations]
 ```
 
-## Fluxo Forecast
+## Fluxo Forecast (atual)
 
 ```mermaid
 graph TB
     subgraph "Input"
         CH[(ClickHouse)]
     end
-    subgraph "Forecast Engine"
-        Q[Query Historical Data]
-        P[Prophet]
-        A[ARIMA]
-        H[Holt-Winters]
-        E[Ensemble]
+    subgraph "Cost Analytics"
+        Q[Query custos diários]
+        L[Tendência linear]
     end
     subgraph "Output"
-        PG[(PostgreSQL)]
-        KF[Kafka]
+        FE[Frontend / API]
     end
     CH --> Q
-    Q --> P
-    Q --> A
-    Q --> H
-    P --> E
-    A --> E
-    H --> E
-    E --> PG
-    E --> KF
+    Q --> L
+    L --> FE
 ```
 
-## Fluxo Alertas
+> A previsão utiliza regressão linear sobre a série temporal de custos reais. Modelos avançados (Prophet, ARIMA) estão no roadmap para integração futura via serviços Python.
+
+## Fluxo Alertas (futuro)
 
 ```mermaid
 graph TB
-    A[Anomaly Detection] --> K[Kafka anomaly.alerts]
-    B[Budget Monitor] --> K
-    C[Recommendation] --> K
+    B[Budget Monitor] --> K[Kafka budget.alerts]
     K --> AM[Alert Manager]
     AM --> E[Email]
     AM --> S[Slack]
@@ -171,26 +155,29 @@ graph TB
     AM --> PG[(PostgreSQL)]
 ```
 
+> A página de Alertas foi removida do frontend. A funcionalidade será reintroduzida vinculada aos budgets: quando `spent > amount * alert_threshold`, um evento será publicado e notificado.
+
 ## Justificativa de Componentes
 
 | Componente | Justificativa |
 |------------|---------------|
-| API Gateway | Ponto único de entrada. JWT, RBAC, Rate Limit, Auditoria |
-| Ingestion Service | Isolamento do processamento de dados brutos. Resiliência com checkpoint e DLQ |
-| Cost Analytics | Separação de concerns. Processamento pesado em ClickHouse |
-| Forecast Engine | Python é padrão de mercado para séries temporais (Prophet, statsmodels) |
-| Anomaly Detection | ML especializado. Isolation Forest para multivariado |
-| Recommendation Engine | Regras + ML para rightsizing |
-| Alert Manager | Desacoplamento de notificações. Múltiplos canais |
-| ClickHouse | OLAP otimizado para analytics financeiro. Compressão, partições, MVs |
-| PostgreSQL | ACID para metadata, configs, usuários |
+| API Gateway | Ponto único de entrada. JWT, RBAC, Rate Limit, Auditoria, proxy para serviços |
+| Ingestion Service | Isolamento do processamento de dados brutos FOCUS. Resiliência com checkpoint e DLQ |
+| Cost Analytics | Separação de concerns. Processamento pesado em ClickHouse; consome Kafka; expõe forecast, anomalies e recommendations |
+| Forecast Engine (Python) | Reservado para modelos avançados (Prophet, ARIMA). Em standby até integração com ClickHouse |
+| Anomaly Detection (Python) | Reservado para algoritmos avançados (Isolation Forest). Em standby |
+| Recommendation Engine (Python) | Reservado para análise de padrões de uso. Em standby |
+| Alert Manager | Desacoplamento de notificações. Múltiplos canais. Será integrado aos budgets |
+| ClickHouse | OLAP otimizado para analytics financeiro. Compressão, partições, TTL |
+| PostgreSQL | ACID para metadata, configs, usuários, budgets, accounts |
 | Kafka | Buffer entre ingestão e processamento. Backpressure handling |
 | Redis | Cache de sessões, rate limiting, configs |
 
 ## Decisões de Arquitetura
 
-1. **Microserviços controlados**: 7 serviços, cada um com responsabilidade única e justificável
-2. **Polyglot persistence**: ClickHouse para analytics, PostgreSQL para transacional
-3. **Event-driven**: Kafka como backbone para desacoplamento
-4. **Observability-first**: OpenTelemetry em todos os serviços
-5. **Security by default**: JWT, RBAC, input validation, security headers
+1. **Microserviços controlados**: 7 serviços definidos, mas a lógica de forecast/anomalies/recommendations foi consolidada no `cost-analytics` para a pré-produção, reduzindo complexidade operacional enquanto os modelos Python não estão integrados.
+2. **Huawei-first**: remoção deliberada de páginas e lógicas multi-cloud (Azure/AWS) para refletir o ambiente real de dados.
+3. **Polyglot persistence**: ClickHouse para analytics, PostgreSQL para transacional.
+4. **Event-driven**: Kafka como backbone entre ingestão e cost-analytics.
+5. **Observability-first**: health checks, logs estruturados e endpoints `/metrics` em todos os serviços. Stack Prometheus/Grafana/Loki disponível no Docker Compose.
+6. **Security by default**: JWT, RBAC, input validation, security headers. Em andamento: hash de senhas, login contra PostgreSQL e gestão segura de secrets (ver `ROADMAP.md`).

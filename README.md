@@ -1,30 +1,34 @@
 # FinOps Enterprise Platform
 
-Plataforma FinOps moderna, escalável e pronta para produção.
+Plataforma FinOps para gestão financeira de cloud **Huawei-only**, consumindo exportações FOCUS 1.0 do OBS e exibindo dashboards dinâmicos em tempo real.
+
+> **Status:** Pré-produção. Veja `ROADMAP.md` para itens pendentes.
 
 ## Stack
 
 - **Frontend**: Next.js 14 + TailwindCSS + Apache ECharts
 - **Backend**: Golang + Gin
-- **ML**: Python + FastAPI
+- **ML**: Python + FastAPI (em standby)
 - **Analytics**: ClickHouse
 - **Metadata**: PostgreSQL
 - **Cache**: Redis
 - **Messaging**: Kafka
-- **Observability**: OpenTelemetry + Prometheus + Grafana + Loki
+- **Observability**: Prometheus + Grafana + Loki
 - **Deploy**: Docker + Kubernetes + Helm
 
 ## Quick Start
 
 ```bash
-# Docker Compose (recomendado para desenvolvimento/local)
+# Clone
+git clone <repo-url> finops-platform
+cd finops-platform
+
+# Configure credenciais (obrigatório para ingestão real)
+cp .env.example .env
+# Edite .env com HUAWEI_ACCESS_KEY, HUAWEI_SECRET_KEY e HUAWEI_OBS_ENDPOINT
+
+# Docker Compose (desenvolvimento)
 docker compose up -d --build
-
-# Ou Kubernetes
-make deploy-k8s
-
-# Ou Helm
-make deploy-helm
 ```
 
 Após subir a stack:
@@ -43,24 +47,28 @@ Login de demo: `admin@finops.local` / `admin123`
 - [Guia de Deploy](docs/DEPLOY_GUIDE.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [UI Architecture](docs/UI-ARCHITECTURE.md)
+- [Roadmap](ROADMAP.md)
+- [Changelog](CHANGELOG.md)
 
 ## Serviços
 
-| Serviço | Porta | Descrição |
-|---------|-------|-----------|
-| API Gateway | 8080 | Auth, Rate Limit, Routing |
-| Ingestion | 8081 | OBS, FOCUS processing |
-| Cost Analytics | 8082 | KPIs, Aggregations |
-| Forecast Engine | 8001 | Prophet, ARIMA, Holt-Winters |
-| Anomaly Detection | 8002 | Isolation Forest, Z-Score |
-| Recommendation | 8003 | Rightsizing, Savings |
-| Alert Manager | 8083 | Notifications |
-| Frontend | 3000 | Dashboards |
+| Serviço | Porta | Descrição | Status |
+|---------|-------|-----------|--------|
+| API Gateway | 8080 | Auth, Rate Limit, Routing, Proxy | ✅ Ativo |
+| Ingestion | 8081 | OBS Huawei, FOCUS processing | ✅ Ativo |
+| Cost Analytics | 8082 | KPIs, Forecast, Anomalies, Recommendations | ✅ Ativo |
+| Alert Manager | 8083 | Notifications backend | ⚠️ Integração futura |
+| Forecast Engine | 8001 | Prophet, ARIMA, Holt-Winters | ⏸️ Standby |
+| Anomaly Detection | 8002 | Isolation Forest, Z-Score | ⏸️ Standby |
+| Recommendation | 8003 | Rightsizing, Savings | ⏸️ Standby |
+| Frontend | 3000 | Dashboards | ✅ Ativo |
+
+> Forecast, anomalias e recomendações são calculados pelo `cost-analytics` a partir de dados reais do ClickHouse.
 
 ## Health Checks
 
 Todos os serviços expõem:
-- `/health` - Health check
+- `/health` - Health check (GET e HEAD)
 - `/ready` - Readiness probe
 - `/live` - Liveness probe
 - `/metrics` - Prometheus metrics

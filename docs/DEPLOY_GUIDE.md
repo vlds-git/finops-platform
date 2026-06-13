@@ -41,36 +41,41 @@ cp .env.example .env
 ### Passo 2: Build e Deploy
 
 ```bash
-cd deploy/docker
+# Na raiz do projeto
+cd finops-platform
 
 # Build das imagens
-docker-compose build
+docker compose build
 
 # Deploy completo
-docker-compose up -d
+docker compose up -d
 
 # Verifique status
-docker-compose ps
+docker compose ps
 
 # Aguarde todos healthy (pode levar 2-3 minutos)
-docker-compose ps | grep -c "Up (healthy)"
+docker compose ps | grep -c "Up (healthy)"
 ```
 
 ### Passo 3: Validação
 
 ```bash
-# Teste health checks
-for port in 8080 8081 8082 8083 8001 8002 8003; do
+# Teste health checks dos serviços principais
+for port in 8080 8081 8082 8083; do
   echo "Port $port:"
   curl -s http://localhost:$port/health | jq .
 done
 
 # Teste login
-curl -X POST http://localhost:8080/api/v1/auth/login   -H "Content-Type: application/json"   -d '{"email":"admin@finops.local","password":"admin123"}'
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@finops.local","password":"admin123"}'
 
 # Acesse frontend
 open http://localhost:3000
 ```
+
+> Os serviços Python (forecast, anomaly, recommendation) ainda são buildados no compose, mas forecast/anomalies/recommendations são servidos pelo `cost-analytics:8082`.
 
 ### Passo 4: Dados Iniciais
 
@@ -83,7 +88,7 @@ docker exec finops-postgres psql -U finops -c "SELECT COUNT(*) FROM users"
 docker exec finops-clickhouse clickhouse-client -q "SHOW TABLES"
 ```
 
-### Passo 5: Configuração OBS (Opcional)
+### Passo 5: Configuração OBS (Obrigatório para dados reais)
 
 ```bash
 # Configure variáveis no .env
@@ -91,35 +96,52 @@ HUAWEI_ACCESS_KEY=your-access-key
 HUAWEI_SECRET_KEY=your-secret-key
 HUAWEI_OBS_ENDPOINT=obs.sa-brazil-1.myhuaweicloud.com
 
-# Reinicie ingestion service
-docker-compose restart ingestion-service
+# Ou exporte diretamente
+export HUAWEI_ACCESS_KEY=your-access-key
+export HUAWEI_SECRET_KEY=your-secret-key
+export HUAWEI_OBS_ENDPOINT=obs.sa-brazil-1.myhuaweicloud.com
 
-# Trigger ingestão manual
-curl -X POST http://localhost:8081/ingestion/trigger   -H "Content-Type: application/json"   -d '{"provider":"huawei","bucket":"your-bucket","prefix":"exports/","account_id":"hw-001"}'
+# Reinicie ingestion service
+docker compose up -d --build ingestion-service
+
+# Trigger ingestão manual (via API Gateway)
+curl -X POST http://localhost:8080/api/v1/ingestion/trigger \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "huawei",
+    "bucket": "focusfinops",
+    "prefix": "daily-exports/Daily_Cost_Export_Focus1-0/",
+    "account_id": "hw-001"
+  }'
+
+# Reprocessar (útil após mudanças no parser)
+curl -X POST http://localhost:8080/api/v1/ingestion/reprocess \
+  -H "Authorization: Bearer <TOKEN>"
 ```
 
 ### Paradas e Updates
 
 ```bash
 # Parar tudo
-docker-compose down
+docker compose down
 
 # Parar mantendo volumes
-docker-compose stop
+docker compose stop
 
 # Restart
-docker-compose restart
+docker compose restart
 
 # Update imagens
-docker-compose pull
-docker-compose up -d
+docker compose pull
+docker compose up -d
 
 # Ver logs
-docker-compose logs -f api-gateway
-docker-compose logs -f cost-analytics
+docker compose logs -f api-gateway
+docker compose logs -f cost-analytics
 
 # Limpar tudo (CUIDADO: perde dados)
-docker-compose down -v
+docker compose down -v
 ```
 
 ## Deploy com Kubernetes (Produção)
@@ -226,18 +248,25 @@ kubectl get hpa -n finops
 kubectl get pods -n finops
 
 # Verifique logs de inicialização
-kubectl logs -n finops -l app=api-gateway --tail=50
-kubectl logs -n finops -l app=cost-analytics --tail=50
+kubectl logs -n finops -l app.kubernetes.io/component=gateway --tail=50
+kubectl logs -n finops -l app.kubernetes.io/component=cost-analytics --tail=50
 
 # Teste health
 curl http://finops.local/health
 curl http://finops.local/ready
 
 # Teste login
-curl -X POST http://finops.local/api/v1/auth/login   -H "Content-Type: application/json"   -d '{"email":"admin@finops.local","password":"admin123"}'
+curl -X POST http://finops.local/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@finops.local","password":"admin123"}'
 
-# Teste forecast
-curl -X POST http://finops.local/api/v1/forecast   -H "Content-Type: application/json"   -d '{"provider":"huawei","period":"30d","model":"ensemble"}'
+# Teste forecast (via cost-analytics)
+curl "http://finops.local/api/v1/forecast?start_date=2024-05-01&end_date=2024-05-30&forecast_days=30" \
+  -H "Authorization: Bearer <TOKEN>"
+
+# Teste anomalias
+curl "http://finops.local/api/v1/anomalies?start_date=2024-05-01&end_date=2024-05-30" \
+  -H "Authorization: Bearer <TOKEN>"
 ```
 
 ## Deploy com Helm (Recomendado para Produção)
@@ -287,6 +316,12 @@ costAnalytics:
       cpu: 2000m
       memory: 1Gi
 
+ingestion:
+  env:
+    HUAWEI_ACCESS_KEY: "YOUR_ACCESS_KEY"
+    HUAWEI_SECRET_KEY: "YOUR_SECRET_KEY"
+    HUAWEI_OBS_ENDPOINT: "obs.sa-brazil-1.myhuaweicloud.com"
+
 postgresql:
   auth:
     username: finops
@@ -314,6 +349,9 @@ kafka:
   persistence:
     enabled: true
     size: 100Gi
+
+migrations:
+  enabled: true
 EOF
 ```
 
@@ -369,8 +407,9 @@ type: Opaque
 stringData:
   jwt-secret: "$(openssl rand -base64 64)"  # 64 bytes random
   postgres-password: "$(openssl rand -base64 32)"
-  huawei-access-key: ""
-  huawei-secret-key: ""
+  clickhouse-password: "$(openssl rand -base64 32)"
+  huawei-access-key: "YOUR_ACCESS_KEY"
+  huawei-secret-key: "YOUR_SECRET_KEY"
 ```
 
 ### Network Policies

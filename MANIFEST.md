@@ -1,16 +1,16 @@
 # FINOPS ENTERPRISE PLATFORM - MANIFESTO DE ENTREGA
 
-## Data: 2024-01-15
-## Versão: 1.0.0
-## Status: ✅ COMPLETO
+## Data: 2024-06-12
+## Versão: 1.1.0-pré
+## Status: 🚧 Pré-Produção
 
 ---
 
 ## RESUMO EXECUTIVO
 
-Plataforma FinOps Enterprise moderna, escalável, segura e pronta para produção,
-implementada como projeto Greenfield com 7 microserviços, 4 camadas de dados,
-observabilidade completa e protótipo navegável de 9 telas.
+Plataforma FinOps Enterprise para gestão financeira de cloud Huawei. Após o ciclo de pré-produção, a plataforma consome dados reais do OBS Huawei, exibe dashboards dinâmicos e consolidou forecast/anomalies/recommendations no `cost-analytics`. O ambiente atual é **Huawei-only** e o frontend possui **6 telas principais**.
+
+> Para itens pendentes de produção, consulte `ROADMAP.md`.
 
 ---
 
@@ -23,33 +23,32 @@ observabilidade completa e protótipo navegável de 9 telas.
 
 ---
 
-## SERVIÇOS IMPLEMENTADOS (7)
+## SERVIÇOS (7 definidos, 4 ativos no fluxo principal)
 
-| # | Serviço | Stack | Porta | Funcionalidade |
-|---|---------|-------|-------|----------------|
-| 1 | API Gateway | Go + Gin | 8080 | JWT, RBAC, Rate Limit, Audit, Proxy |
-| 2 | Ingestion Service | Go + Gin | 8081 | OBS, FOCUS, Checkpoints, DLQ, Retry |
-| 3 | Cost Analytics | Go + Gin + ClickHouse | 8082 | KPIs, Agregações, Dashboards |
-| 4 | Alert Manager | Go + Gin | 8083 | Slack, Email, Webhook, Histórico |
-| 5 | Forecast Engine | Python + FastAPI | 8001 | Prophet, ARIMA, Holt-Winters, Ensemble |
-| 6 | Anomaly Detection | Python + FastAPI | 8002 | Isolation Forest, Z-Score, Rolling Average |
-| 7 | Recommendation Engine | Python + FastAPI | 8003 | Rightsizing, Idle, Storage, Savings |
+| # | Serviço | Stack | Porta | Funcionalidade | Status |
+|---|---------|-------|-------|----------------|--------|
+| 1 | API Gateway | Go + Gin | 8080 | JWT, RBAC, Rate Limit, Audit, Proxy | ✅ Ativo |
+| 2 | Ingestion Service | Go + Gin | 8081 | OBS Huawei, FOCUS, Checkpoints, DLQ, Retry | ✅ Ativo |
+| 3 | Cost Analytics | Go + Gin + ClickHouse | 8082 | KPIs, Agregações, Forecast, Anomalias, Recomendações | ✅ Ativo |
+| 4 | Alert Manager | Go + Gin | 8083 | Slack, Email, Webhook, Histórico | ⚠️ Backend ativo, integração futura |
+| 5 | Forecast Engine | Python + FastAPI | 8001 | Prophet, ARIMA, Holt-Winters | ⏸️ Standby |
+| 6 | Anomaly Detection | Python + FastAPI | 8002 | Isolation Forest, Z-Score | ⏸️ Standby |
+| 7 | Recommendation Engine | Python + FastAPI | 8003 | Rightsizing, Idle, Storage | ⏸️ Standby |
 
 ---
 
-## PROTÓTIPO VISUAL (9 TELAS)
+## PROTÓTIPO VISUAL (6 TELAS)
 
 | # | Tela | Status |
 |---|------|--------|
-| 1 | Dashboard Executivo | ✅ KPIs, Tendências, Serviços, Apps, Provedores |
-| 2 | Dashboard Operacional | ✅ Ambientes, Regiões, Business Units |
-| 3 | Forecast | ✅ 30/90/365d, Ensemble, Métricas |
-| 4 | Anomalias | ✅ Timeline, Tabela, Severidades, Métodos |
-| 5 | Recomendações | ✅ 8 oportunidades, Savings, Riscos, Ações |
-| 6 | Budgets | ✅ Orçado vs Realizado, Alertas, Status |
-| 7 | Alertas | ✅ Firing/Resolved, Regras, Canais |
-| 8 | Usuários | ✅ Perfis, Permissões, Auditoria |
-| 9 | Multi-Cloud | ✅ Huawei, Azure, AWS comparativo |
+| 1 | Dashboard Executivo | ✅ KPIs reais, Tendência, Serviços, Regiões |
+| 2 | Forecast | ✅ Dados reais, horizonte 30/60/90d, Linear Trend |
+| 3 | Anomalias | ✅ Z-Score sobre custos diários reais |
+| 4 | Recomendações | ✅ Oportunidades baseadas em custos reais |
+| 5 | Budgets | ✅ Orçado vs Realizado por account, alertas por threshold |
+| 6 | Usuários | ✅ CRUD completo, perfis, status |
+
+> Telas removidas: Dashboard Operacional, Alertas, Multi-Cloud.
 
 ---
 
@@ -93,7 +92,8 @@ observabilidade completa e protótipo navegável de 9 telas.
 | 1 | PostgreSQL | 12 tabelas + seed | Users, Budgets, Alerts, Audit, etc. |
 | 2 | ClickHouse | 6 tabelas + 4 MVs | Costs, Forecasts, Anomalies, Aggregated |
 | 3 | Redis | - | Cache, Sessions, Rate Limit |
-| 4 | Kafka | 4 topics | cost.raw, anomaly.alerts, forecast.results, recommendations |
+| 4 | Kafka | 1 topic ativo | cost.raw |
+| 4 | Kafka | 3 topics futuros | anomaly.alerts, forecast.results, recommendations |
 
 ---
 
@@ -108,15 +108,16 @@ observabilidade completa e protótipo navegável de 9 telas.
 - ✅ SSRF protection
 - ✅ Audit logging
 - ✅ Input validation
-- ✅ Network Policies
-- ✅ Pod Security Standards
+- ⚠️ Network Policies — no roadmap (Fase 2)
+- ⚠️ Pod Security Standards — no roadmap (Fase 2)
+- ⚠️ Senhas em plaintext — correção no roadmap (Fase 1)
 
 ---
 
 ## OBSERVABILIDADE
 
 - ✅ /health, /ready, /live, /metrics em todos os serviços
-- ✅ OpenTelemetry tracing
+- ⚠️ OpenTelemetry tracing — no roadmap (Fase 2)
 - ✅ Prometheus metrics
 - ✅ Grafana dashboards
 - ✅ Loki logs

@@ -2,29 +2,50 @@
 
 ## Como Criar Usuários
 
+### Via Frontend
+
+1. Acesse **Usuários** no menu lateral.
+2. Clique em **Novo Usuário**.
+3. Preencha nome, email, senha e perfis (admin, analyst, viewer).
+4. Clique em **Salvar**.
+
 ### Via API
 
 ```bash
 # 1. Obtenha token de admin
-curl -X POST http://localhost:8080/api/v1/auth/login   -H "Content-Type: application/json"   -d '{"email":"admin@finops.local","password":"admin123"}'
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@finops.local","password":"admin123"}'
 
 # 2. Crie usuário
-curl -X POST http://localhost:8080/api/v1/admin/users   -H "Authorization: Bearer <TOKEN>"   -H "Content-Type: application/json"   -d '{
+curl -X POST http://localhost:8080/api/v1/admin/users \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
     "email": "novo.usuario@company.com",
     "name": "Novo Usuário",
     "password": "senhaSegura123",
-    "roles": ["analyst"]
+    "roles": ["analyst"],
+    "active": true
   }'
+
+# 3. Atualizar usuário
+curl -X PUT http://localhost:8080/api/v1/admin/users/<ID> \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "novo.usuario@company.com",
+    "name": "Novo Usuário",
+    "roles": ["analyst", "viewer"],
+    "active": true
+  }'
+
+# 4. Remover usuário
+curl -X DELETE http://localhost:8080/api/v1/admin/users/<ID> \
+  -H "Authorization: Bearer <TOKEN>"
 ```
 
-### Via PostgreSQL
-
-```bash
-psql -h postgres -U finops -d finops
-
-INSERT INTO users (email, name, password_hash, roles) VALUES
-('novo.usuario@company.com', 'Novo Usuário', 'senhaSegura123', ARRAY['analyst']);
-```
+> **Atenção:** no ciclo atual, senhas ainda são armazenadas em plaintext no PostgreSQL. A substituição por hash (bcrypt/Argon2) está no `ROADMAP.md` como item P0.
 
 ### Perfis Disponíveis
 
@@ -71,31 +92,51 @@ env:
 
 ## Como Criar Budgets
 
+### Via Frontend
+
+1. Acesse **Budgets** no menu lateral.
+2. Clique em **Novo Budget**.
+3. Preencha nome, valor orçado, período, datas de início/fim e threshold de alerta.
+4. Selecione a **account** obrigatoriamente no dropdown (dados vindos de `/api/v1/accounts`).
+5. Clique em **Salvar**.
+
+O campo `spent` é calculado automaticamente pelo `cost-analytics` a partir do ClickHouse, filtrando por `provider` e `billing_account_id` dentro do período do budget.
+
 ### Via API
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/budgets   -H "Authorization: Bearer <TOKEN>"   -H "Content-Type: application/json"   -d '{
+# 1. Listar accounts disponíveis
+curl http://localhost:8080/api/v1/accounts \
+  -H "Authorization: Bearer <TOKEN>"
+
+# 2. Criar budget vinculado a uma account
+curl -X POST http://localhost:8080/api/v1/budgets \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
     "name": "Produção - Q2 2024",
     "amount": 200000.00,
-    "currency": "BRL",
     "period": "quarterly",
     "start_date": "2024-04-01",
     "end_date": "2024-06-30",
     "alert_threshold": 0.85,
-    "provider": "all",
-    "account_id": "all",
-    "service": "all",
-    "tags": {"environment": "production"}
+    "provider": "huawei",
+    "account_id": "hw-account-001"
   }'
-```
 
-### Via PostgreSQL
+# 3. Atualizar budget
+curl -X PUT http://localhost:8080/api/v1/budgets/<ID> \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Produção - Q2 2024",
+    "amount": 250000.00,
+    "alert_threshold": 0.80
+  }'
 
-```bash
-psql -h postgres -U finops -d finops
-
-INSERT INTO budgets (name, amount, period, start_date, end_date, alert_threshold, provider, account_id) VALUES
-('Produção - Q2 2024', 200000.00, 'quarterly', '2024-04-01', '2024-06-30', 0.85, 'all', 'all');
+# 4. Remover budget
+curl -X DELETE http://localhost:8080/api/v1/budgets/<ID> \
+  -H "Authorization: Bearer <TOKEN>"
 ```
 
 ### Campos do Budget
@@ -104,50 +145,48 @@ INSERT INTO budgets (name, amount, period, start_date, end_date, alert_threshold
 |-------|-----------|---------|
 | `name` | Nome descritivo | "Produção - Q2 2024" |
 | `amount` | Valor orçado | 200000.00 |
-| `currency` | Moeda | "BRL", "USD" |
-| `period` | Período | "monthly", "quarterly", "yearly" |
+| `period` | Período | "monthly", "quarterly", "yearly", "custom" |
 | `start_date` | Início | "2024-04-01" |
 | `end_date` | Fim | "2024-06-30" |
 | `alert_threshold` | % para alerta | 0.85 = 85% |
-| `provider` | Provedor filtro | "all", "huawei", "azure", "aws" |
-| `account_id` | Conta filtro | "all", "hw-001" |
-| `service` | Serviço filtro | "all", "Compute" |
-| `tags` | Tags filtro | `{"environment": "production"}` |
+| `provider` | Provedor | "huawei" |
+| `account_id` | Conta obrigatória | "hw-account-001" |
 
-### Alertas de Budget
+### Status do Budget
 
-Quando `spent/amount >= alert_threshold`, o sistema gera alerta automaticamente.
+| Status | Condição |
+|--------|----------|
+| On Track | `spent/amount < alert_threshold` |
+| Warning | `spent/amount >= alert_threshold` e `<= 100%` |
+| Over Budget | `spent/amount > 100%` |
 
-Configure notificações no Alert Manager para receber avisos.
+> Alertas serão reintroduzidos vinculados aos budgets (ver `ROADMAP.md`). A página de Alertas foi removida do frontend.
 
 ---
 
 ## Como Criar Alertas
 
-### Via API
+> **A página de Alertas foi removida do frontend.** A funcionalidade será reintroduzida de forma integrada aos budgets: quando `spent/amount >= alert_threshold`, o sistema publicará um evento e notificará via Alert Manager.
+>
+> Enquanto isso, o backend `alert-manager` continua disponível para criação manual de regras via API, se necessário.
+
+### API do Alert Manager (backend)
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/alerts   -H "Authorization: Bearer <TOKEN>"   -H "Content-Type: application/json"   -d '{
-    "name": "Cost Spike Alert",
-    "description": "Alerta quando custo diário excede 150% da média",
-    "condition": "cost_spike",
-    "threshold": 1.5,
+curl -X POST http://localhost:8080/api/v1/alerts \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Budget Threshold",
+    "description": "Alerta quando budget atinge 85%",
+    "condition": "budget_utilization",
+    "threshold": 0.85,
     "severity": "high",
     "channel": "slack",
     "destination": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
     "enabled": true
   }'
 ```
-
-### Condições Disponíveis
-
-| Condição | Descrição | Threshold |
-|----------|-----------|-----------|
-| `budget_utilization` | % do budget utilizado | 0.90 = 90% |
-| `cost_spike` | Múltiplo da média | 2.0 = 200% |
-| `forecast_exceed` | Forecast vs budget | 1.05 = 105% |
-| `anomaly_detected` | Anomalia detectada | Qualquer severidade |
-| `idle_resource` | Recurso ocioso > N dias | 30 dias |
 
 ### Canais de Notificação
 
@@ -157,15 +196,6 @@ curl -X POST http://localhost:8080/api/v1/alerts   -H "Authorization: Bearer <TO
 | `email` | Endereço de email | Configure SMTP no Alert Manager |
 | `webhook` | URL customizada | Endpoint que recebe POST JSON |
 | `teams` | Webhook URL | Similar ao Slack |
-
-### Via PostgreSQL
-
-```bash
-psql -h postgres -U finops -d finops
-
-INSERT INTO alert_rules (name, description, condition, threshold, severity, channel, destination, enabled) VALUES
-('Budget Alert', 'Alerta de budget', 'budget_utilization', 0.90, 'critical', 'slack', 'https://hooks.slack.com/...', true);
-```
 
 ---
 
@@ -192,8 +222,8 @@ curl -X POST http://localhost:8080/api/v1/admin/cloud-accounts   -H "Authorizati
 | Provedor | `provider` | Campos Específicos |
 |----------|-----------|-------------------|
 | Huawei Cloud | `huawei` | `endpoint`, `bucket`, `prefix` |
-| Azure | `azure` | `subscription_id`, `storage_account`, `container` |
-| AWS | `aws` | `region`, `bucket`, `prefix`, `role_arn` |
+
+> Azure e AWS foram removidos do escopo atual. O ambiente é Huawei-only.
 
 ### Via PostgreSQL
 
@@ -258,148 +288,74 @@ INSERT INTO cloud_accounts (provider, account_id, account_name, access_key, secr
 
 ## Como Configurar Forecast
 
+### Via Frontend
+
+1. Acesse **Forecast** no menu lateral.
+2. Selecione o período de histórico no header (ex: 30d).
+3. Escolha o horizonte de previsão: 30, 60 ou 90 dias.
+4. Visualize gráfico histórico + projeção e métricas resumidas.
+
 ### Via API
 
-```bash
-# Configure parâmetros do forecast engine
-curl -X POST http://localhost:8001/api/v1/forecast   -H "Content-Type: application/json"   -d '{
-    "provider": "huawei",
-    "account_id": "hw-001",
-    "period": "30d",
-    "model": "ensemble"
-  }'
-```
-
-### Modelos Disponíveis
-
-| Modelo | Descrição | Quando Usar |
-|--------|-----------|-------------|
-| `prophet` | Facebook Prophet. Tendência + sazonalidade. | Dados com sazonalidade clara |
-| `arima` | AutoRegressive Integrated Moving Average. | Dados estacionários |
-| `holt-winters` | Exponential Smoothing. Tendência + sazonalidade. | Dados com tendência |
-| `ensemble` | Média dos 3 modelos. | Padrão. Melhor accuracy |
-
-### Períodos
-
-| Período | Uso | Precisão |
-|---------|-----|----------|
-| `30d` | Operação diária | Alta (MAPE ~4%) |
-| `90d` | Planejamento trimestral | Média (MAPE ~8%) |
-| `12m` | Planejamento anual | Baixa (MAPE ~15%) |
-
-### Agendamento Automático
-
-Configure cron job para gerar forecast diariamente:
+O forecast é servido pelo `cost-analytics` via API Gateway:
 
 ```bash
-# Kubernetes CronJob
-cat <<EOF | kubectl apply -f -
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: forecast-daily
-  namespace: finops
-spec:
-  schedule: "0 6 * * *"  # 6 AM daily
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: forecast
-            image: curlimages/curl:latest
-            command:
-            - sh
-            - -c
-            - |
-              curl -X POST http://forecast-engine:8001/api/v1/forecast                 -H "Content-Type: application/json"                 -d '{"provider":"all","period":"30d","model":"ensemble"}'
-          restartPolicy: OnFailure
-EOF
+# Forecast com base nos últimos 30 dias
+curl "http://localhost:8080/api/v1/forecast?start_date=2024-05-01&end_date=2024-05-30&forecast_days=30&currency=BRL" \
+  -H "Authorization: Bearer <TOKEN>"
 ```
+
+### Modelo Atual
+
+| Modelo | Descrição | Status |
+|--------|-----------|--------|
+| Linear Trend | Regressão linear sobre custos diários do ClickHouse | **Ativo** |
+| Prophet / ARIMA / Holt-Winters | Modelos estatísticos avançados | Em standby (ver `ROADMAP.md`) |
 
 ---
 
 ## Como Configurar Anomalias
 
+### Via Frontend
+
+1. Acesse **Anomalias** no menu lateral.
+2. Selecione o período no header.
+3. Visualize timeline, resumo e tabela de anomalias detectadas.
+
 ### Via API
 
-```bash
-# Configure detecção de anomalias
-curl -X POST http://localhost:8002/api/v1/anomalies   -H "Content-Type: application/json"   -d '{
-    "provider": "huawei",
-    "account_id": "hw-001",
-    "method": "ensemble",
-    "sensitivity": 0.05,
-    "window": 7
-  }'
-```
-
-### Métodos Disponíveis
-
-| Método | Descrição | Quando Usar |
-|--------|-----------|-------------|
-| `isolation_forest` | ML não supervisionado. Detecta outliers multivariados. | Dados complexos, múltiplas dimensões |
-| `zscore` | Estatístico. Desvio padrão da média. | Dados normais, simples |
-| `rolling_average` | Média móvel com bandas. | Dados com tendência suave |
-| `ensemble` | Combinação dos 3. | Padrão. Melhor coverage |
-
-### Parâmetros
-
-| Parâmetro | Descrição | Range | Padrão |
-|-----------|-----------|-------|--------|
-| `sensitivity` | Sensibilidade da detecção | 0.01 - 0.20 | 0.05 |
-| `window` | Janela para rolling average | 3 - 30 dias | 7 |
-
-- **Sensitivity baixa (0.01)**: Menos falsos positivos, pode perder anomalias sutis
-- **Sensitivity alta (0.20)**: Mais sensível, mais falsos positivos
-
-### Agendamento Automático
+As anomalias são calculadas pelo `cost-analytics` via API Gateway:
 
 ```bash
-# Kubernetes CronJob
-cat <<EOF | kubectl apply -f -
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: anomaly-daily
-  namespace: finops
-spec:
-  schedule: "0 7 * * *"  # 7 AM daily
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: anomaly
-            image: curlimages/curl:latest
-            command:
-            - sh
-            - -c
-            - |
-              curl -X POST http://anomaly-detection:8002/api/v1/anomalies                 -H "Content-Type: application/json"                 -d '{"provider":"all","method":"ensemble","sensitivity":0.05}'
-          restartPolicy: OnFailure
-EOF
+curl "http://localhost:8080/api/v1/anomalies?start_date=2024-05-01&end_date=2024-05-30&currency=BRL" \
+  -H "Authorization: Bearer <TOKEN>"
 ```
+
+### Método Atual
+
+| Método | Descrição | Status |
+|--------|-----------|--------|
+| Z-Score | Desvio padrão da média dos custos diários | **Ativo** |
+| Isolation Forest / Rolling Average | Algoritmos avançados | Em standby (ver `ROADMAP.md`) |
 
 ---
 
 ## Checklist de Configuração Inicial
 
 - [ ] Criar usuário admin
-- [ ] Cadastrar contas cloud (Huawei, Azure, AWS)
+- [ ] Cadastrar contas cloud (Huawei)
 - [ ] Configurar OBS (bucket, IAM, lifecycle)
-- [ ] Configurar FOCUS exports nos provedores
-- [ ] Criar budgets para cada ambiente
-- [ ] Criar alertas de budget e anomalias
-- [ ] Configurar canais de notificação (Slack/Email)
-- [ ] Testar ingestão manual
-- [ ] Verificar dados no ClickHouse
-- [ ] Configurar forecast automático (CronJob)
-- [ ] Configurar anomaly detection automático (CronJob)
+- [ ] Configurar FOCUS exports diários
+- [ ] Criar budgets vinculados a accounts
+- [ ] Testar ingestão manual via `/api/v1/ingestion/trigger`
+- [ ] Verificar dados no ClickHouse (`finops.costs_raw`)
+- [ ] Validar dashboards (períodos e moeda USD/BRL)
 - [ ] Configurar dashboards Grafana
 - [ ] Configurar alertas Prometheus
 - [ ] Documentar equipe e responsáveis
 - [ ] Treinar usuários (Analysts e Viewers)
+
+> Forecast e anomalias já funcionam online a partir dos dados do ClickHouse. Não é necessário CronJob inicial.
 
 ---
 

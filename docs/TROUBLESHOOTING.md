@@ -5,10 +5,10 @@
 1. [API Gateway](#api-gateway)
 2. [Ingestion Service](#ingestion-service)
 3. [Cost Analytics](#cost-analytics)
-4. [Alert Manager](#alert-manager)
-5. [Forecast Engine](#forecast-engine)
-6. [Anomaly Detection](#anomaly-detection)
-7. [Recommendation Engine](#recommendation-engine)
+4. [Budgets e Accounts](#budgets-e-accounts)
+5. [Usuários](#usuários)
+6. [Alert Manager](#alert-manager)
+7. [Forecast Engine / Anomaly / Recommendation](#forecast-engine--anomaly--recommendation)
 8. [PostgreSQL](#postgresql)
 9. [ClickHouse](#clickhouse)
 10. [Kafka](#kafka)
@@ -241,7 +241,68 @@ kubectl patch deployment cost-analytics -n finops -p '{"spec":{"template":{"spec
 
 ---
 
+## Budgets e Accounts
+
+### Budget mostra spent zerado ou incorreto
+**Sintoma:** Coluna "Realizado" do budget não reflete custos reais.
+
+**Diagnóstico:**
+```bash
+# Verifique se a account existe
+psql -h postgres -U finops -c "SELECT account_id, account_name FROM cloud_accounts"
+
+# Verifique custos no período do budget
+clickhouse-client -q "SELECT sum(effective_cost) FROM costs_raw WHERE date BETWEEN '2024-04-01' AND '2024-06-30' AND provider='huawei' AND billing_account_id='hw-account-001'"
+
+# Verifique logs do cost-analytics
+kubectl logs -n finops -l app.kubernetes.io/component=cost-analytics --tail=100
+```
+
+**Causas comuns:**
+- `account_id` do budget não existe em `cloud_accounts`.
+- Não há dados no ClickHouse para o período/provider/account selecionado.
+- Colunas BRL ausentes (`effective_cost_brl`, `list_cost_brl`, etc.).
+
+**Correção:**
+```bash
+# Aplique schema ClickHouse se necessário
+clickhouse-client -q "ALTER TABLE costs_raw ADD COLUMN IF NOT EXISTS effective_cost_brl Float64"
+
+# Reprocesse a ingestão
+curl -X POST http://localhost:8080/api/v1/ingestion/reprocess -H "Authorization: Bearer <TOKEN>"
+```
+
+---
+
+## Usuários
+
+### Não é possível criar/editar usuário
+**Sintoma:** Modal de usuário retorna erro ou não salva.
+
+**Diagnóstico:**
+```bash
+# Verifique logs do cost-analytics
+kubectl logs -n finops -l app.kubernetes.io/component=cost-analytics --tail=100
+
+# Teste API manualmente
+curl -X POST http://localhost:8080/api/v1/admin/users \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"teste@company.com","name":"Teste","password":"senha123","roles":["viewer"]}'
+```
+
+**Causas comuns:**
+- Email duplicado (coluna `email` tem unique constraint).
+- Senha em branco na criação.
+- Roles inválidas (deve ser um array de strings).
+
+> **Nota:** senhas são armazenadas em plaintext no ciclo atual. A correção está no `ROADMAP.md`.
+
+---
+
 ## Alert Manager
+
+> A página de Alertas foi removida do frontend. O backend continua disponível, mas a funcionalidade principal será reintroduzida vinculada aos budgets.
 
 ### Alertas não sendo enviados
 **Sintoma:** Alertas aparecem no banco mas notificações não chegam.
@@ -252,7 +313,7 @@ kubectl patch deployment cost-analytics -n finops -p '{"spec":{"template":{"spec
 psql -h postgres -U finops -c "SELECT id, rule_name, severity, status, created_at FROM alerts WHERE status='firing' ORDER BY created_at DESC"
 
 # Verifique logs do alert-manager
-kubectl logs -n finops -l app=alert-manager --tail=100
+kubectl logs -n finops -l app.kubernetes.io/component=alert-manager --tail=100
 
 # Verifique configuração das regras
 psql -h postgres -U finops -c "SELECT name, channel, destination, enabled FROM alert_rules"
@@ -261,116 +322,41 @@ psql -h postgres -U finops -c "SELECT name, channel, destination, enabled FROM a
 curl -X POST <webhook-url> -d '{"test":"message"}' -v
 ```
 
-**Causas e Correções:**
-
-| Causa | Identificação | Correção |
-|-------|--------------|----------|
-| Canal desabilitado | `enabled=false` | Atualize regra: `UPDATE alert_rules SET enabled=true` |
-| Destination inválida | Teste webhook falha | Corrija URL no banco |
-| Slack webhook expirado | 403 no teste | Regenere webhook no Slack |
-| Network policy bloqueando | Timeout no teste | Verifique network policies |
-
-**Comandos:**
-```bash
-# Teste notificação manual
-curl -X POST http://localhost:8083/api/v1/alerts   -H "Content-Type: application/json"   -d '{"rule_id":"uuid","rule_name":"Test","severity":"low","message":"Test alert","value":100,"threshold":90}'
-
-# Verifique se chegou
-psql -h postgres -U finops -c "SELECT * FROM alerts ORDER BY created_at DESC LIMIT 5"
-```
-
 ---
 
-## Forecast Engine
+## Forecast Engine / Anomaly / Recommendation
 
-### Forecasts desatualizados
-**Sintoma:** Último forecast tem data antiga, valores não atualizam.
+> Forecast, anomalias e recomendações são calculados pelo `cost-analytics` a partir de dados reais do ClickHouse. Os serviços Python estão em standby.
+
+### Forecast vazio ou valores fixos
+**Sintoma:** Página de Forecast não mostra dados ou valores não mudam.
 
 **Diagnóstico:**
 ```bash
-# Verifique últimos forecasts
-psql -h postgres -U finops -c "SELECT provider, period, model, generated_at FROM forecasts ORDER BY generated_at DESC LIMIT 5"
+# Teste API diretamente
+curl "http://localhost:8080/api/v1/forecast?start_date=2024-05-01&end_date=2024-05-30&forecast_days=30" \
+  -H "Authorization: Bearer <TOKEN>"
 
-# Verifique logs
-kubectl logs -n finops -l app=forecast-engine --tail=100
+# Verifique se há dados no período
+clickhouse-client -q "SELECT date, sum(effective_cost) FROM costs_raw WHERE date BETWEEN '2024-05-01' AND '2024-05-30' GROUP BY date ORDER BY date"
 
-# Verifique saúde
-curl -s http://localhost:8001/health | jq .
-
-# Verifique memória
-kubectl top pod -n finops -l app=forecast-engine
+# Logs do cost-analytics
+kubectl logs -n finops -l app.kubernetes.io/component=cost-analytics --tail=100
 ```
-
-**Correção:**
-```bash
-# Gere forecast manualmente
-curl -X POST http://localhost:8001/api/v1/forecast   -d '{"provider":"all","period":"30d","model":"ensemble"}'
-
-# Reinicie se necessário
-kubectl rollout restart deployment/forecast-engine -n finops
-
-# Verifique CronJob
-kubectl get cronjobs -n finops
-kubectl get jobs -n finops
-```
-
-### Modelo quebrado (erros Python)
-**Sintoma:** Logs mostram traceback do Prophet/ARIMA.
-
-**Diagnóstico:**
-```bash
-kubectl logs -n finops -l app=forecast-engine --tail=200 | grep -A 20 "Error\|Traceback"
-```
-
-**Correção:**
-```bash
-# Reinicie (o modelo será recarregado)
-kubectl rollout restart deployment/forecast-engine -n finops
-
-# Se persistir, verifique se dados no ClickHouse estão corrompidos
-clickhouse-client -q "SELECT min(date), max(date), count() FROM costs"
-# Se count=0 ou min=max, dados estão insuficientes para forecast
-```
-
----
-
-## Anomaly Detection
 
 ### Sem anomalias detectadas
-**Sintoma:** Sempre retorna 0 anomalias, mesmo com picos óbvios.
+**Sintoma:** Página de Anomalias retorna lista vazia.
 
 **Diagnóstico:**
 ```bash
-# Verifique dados históricos
-clickhouse-client -q "SELECT date, sum(effective_cost) as cost FROM costs WHERE date >= today() - 30 GROUP BY date ORDER BY date"
+curl "http://localhost:8080/api/v1/anomalies?start_date=2024-05-01&end_date=2024-05-30" \
+  -H "Authorization: Bearer <TOKEN>"
 
-# Verifique método e sensibilidade
-psql -h postgres -U finops -c "SELECT * FROM anomalies ORDER BY date DESC LIMIT 10"
-
-# Teste com diferentes parâmetros
-curl -X POST http://localhost:8002/api/v1/anomalies   -d '{"provider":"all","method":"zscore","sensitivity":0.01}'
+# Verifique variância dos dados
+clickhouse-client -q "SELECT date, sum(effective_cost) FROM costs_raw WHERE date BETWEEN '2024-05-01' AND '2024-05-30' GROUP BY date ORDER BY date"
 ```
 
-**Correção:**
-```bash
-# Aumente sensibilidade
-curl -X POST http://localhost:8002/api/v1/anomalies   -d '{"provider":"all","method":"ensemble","sensitivity":0.10}'
-
-# Reinicie
-kubectl rollout restart deployment/anomaly-detection -n finops
-```
-
-### Falsos positivos excessivos
-**Sintoma:** Muitas anomalias reportadas, maioria não é real.
-
-**Correção:**
-```bash
-# Diminua sensibilidade
-curl -X POST http://localhost:8002/api/v1/anomalies   -d '{"provider":"all","method":"ensemble","sensitivity":0.02}'
-
-# Ou use apenas Z-Score (mais conservador)
-curl -X POST http://localhost:8002/api/v1/anomalies   -d '{"provider":"all","method":"zscore","sensitivity":0.05}'
-```
+> Anomalias são detectadas apenas quando o desvio padrão é significativo (`|z| > 2`). Se os custos forem muito estáveis, nenhuma anomalia será reportada.
 
 ---
 
@@ -838,21 +824,21 @@ kubectl get pods -n finops
 # 2. Health checks
 echo ""
 echo "2. Health Checks:"
-for svc in api-gateway:8080 cost-analytics:8082 alert-manager:8083; do
+for svc in api-gateway:8080 ingestion-service:8081 cost-analytics:8082 alert-manager:8083; do
   name=$(echo $svc | cut -d: -f1)
   port=$(echo $svc | cut -d: -f2)
   echo -n "$name: "
   curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/health || echo "FAIL"
 done
 
-# 3. ML Health
+# 3. ML Health (opcional - serviços em standby)
 echo ""
-echo "3. ML Services:"
+echo "3. ML Services (optional):"
 for svc in forecast-engine:8001 anomaly-detection:8002 recommendation-engine:8003; do
   name=$(echo $svc | cut -d: -f1)
   port=$(echo $svc | cut -d: -f2)
   echo -n "$name: "
-  curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/health || echo "FAIL"
+  curl -s -o /dev/null -w "%{http_code}" http://localhost:$port/health || echo "STANDBY/FAIL"
 done
 
 # 4. Database connectivity
@@ -897,5 +883,5 @@ echo "=== Diagnostics Complete ==="
 | Banco de dados (PG, CH) | DBA | Database Team |
 | Aplicação (bugs, crashes) | Development | Engineering Lead |
 | Segurança (breach, IAM) | Security | CISO |
-| Cloud Provider (OBS, API) | Cloud Team | Huawei/Azure/AWS Support |
+| Cloud Provider (OBS, API) | Cloud Team | Huawei Support |
 | ML Models (accuracy) | Data Science | ML Lead |
