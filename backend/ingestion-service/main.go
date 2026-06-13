@@ -250,6 +250,9 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 		}
 
 		file := object.Key
+		if strings.HasSuffix(file, "/") {
+			continue
+		}
 		if file <= checkpoint {
 			continue
 		}
