@@ -815,10 +815,10 @@ func (s *CostAnalyticsService) computeSpent(provider, accountID, costCol, startD
 
 func (s *CostAnalyticsService) computeBudgetUtilization(costCol string) float64 {
 	var budgeted, spent float64
-	row := s.pg.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM budgets`)
-	row.Scan(&budgeted)
-	row = s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 30", costCol))
-	row.Scan(&spent)
+	pgRow := s.pg.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM budgets`)
+	pgRow.Scan(&budgeted)
+	chRow := s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 30", costCol))
+	chRow.Scan(&spent)
 	if budgeted > 0 {
 		return spent / budgeted
 	}
