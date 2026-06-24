@@ -210,6 +210,8 @@ services:
       context: ./backend/ingestion-service
       dockerfile: Dockerfile
     container_name: finops-ingestion
+    ports:
+      - "8081:8081"
     environment:
       PORT: 8081
       KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
