@@ -83,8 +83,7 @@ func main() {
 	api.GET("/forecast/:period", proxyTo("http://cost-analytics:8082"))
 	api.POST("/forecast", proxyTo("http://cost-analytics:8082"))
 
-	// Anomalies
-	api.GET("/anomalies", proxyTo("http://anomaly-detection:8002"))
+	// Anomalies (ML service: detect / get by ID)
 	api.GET("/anomalies/:id", proxyTo("http://anomaly-detection:8002"))
 	api.POST("/anomalies", proxyTo("http://anomaly-detection:8002"))
 
