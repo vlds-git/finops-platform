@@ -388,4 +388,10 @@ psql -h postgres -U finops -c "SELECT pg_size_pretty(pg_database_size('finops'))
 
 # Verificar conexões ativas
 psql -h postgres -U finops -c "SELECT count(*), state FROM pg_stat_activity WHERE datname='finops' GROUP BY state"
+
+# ClickHouse - contagem total e distinta (detectar duplicatas)
+clickhouse-client --database=finops -q "SELECT count(), uniqExact(*) FROM costs_raw"
+
+# ClickHouse - deduplicar tabela costs_raw (execute com cuidado; para o ambiente Docker Compose use scripts/dedup_clickhouse.sh)
+clickhouse-client --database=finops --multiquery < scripts/dedup_clickhouse.sql
 ```

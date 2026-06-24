@@ -109,9 +109,11 @@ func main() {
 	}
 
 	kafkaRdr := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{getEnv("KAFKA_BROKERS", "kafka:9092")},
-		Topic:   "cost.raw",
-		GroupID: "cost-analytics",
+		Brokers:     []string{getEnv("KAFKA_BROKERS", "kafka:9092")},
+		Topic:       "cost.raw",
+		GroupID:     "cost-analytics",
+		StartOffset: kafka.LastOffset,
+		MaxWait:     1 * time.Second,
 	})
 
 	svc := &CostAnalyticsService{pg: pg, ch: chConn, kafkaRdr: kafkaRdr}
@@ -294,11 +296,20 @@ func (s *CostAnalyticsService) consumeKafka() {
 		var rec FocusRecord
 		if err := json.Unmarshal(msg.Value, &rec); err != nil {
 			log.Printf("[KAFKA] Unmarshal error: %v", err)
+			// Commit invalid messages so they are not reprocessed indefinitely.
+			if cErr := s.kafkaRdr.CommitMessages(ctx, msg); cErr != nil {
+				log.Printf("[KAFKA] Commit error: %v", cErr)
+			}
 			continue
 		}
 
 		if err := s.insertRawCost(ctx, rec); err != nil {
 			log.Printf("[KAFKA] ClickHouse insert error: %v", err)
+			continue
+		}
+
+		if err := s.kafkaRdr.CommitMessages(ctx, msg); err != nil {
+			log.Printf("[KAFKA] Commit error: %v", err)
 			continue
 		}
 		log.Printf("[KAFKA] Persisted record: %s/%s/%s", rec.Provider, rec.ServiceName, rec.Date)
@@ -404,11 +415,32 @@ func (s *CostAnalyticsService) getCosts(c *gin.Context) {
 
 	row := s.ch.QueryRow(context.Background(), query, args...)
 	var summary CostSummary
-	if err := row.Scan(&summary.TotalCost, &summary.AmortizedCost, &summary.ListCost, &summary.ServiceCount, &summary.ResourceCount); err != nil {
+	var totalCost, amortizedCost, listCost *float64
+	var serviceCount, resourceCount *uint64
+	if err := row.Scan(&totalCost, &amortizedCost, &listCost, &serviceCount, &resourceCount); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	summary.TotalCost = derefFloat(totalCost)
+	summary.AmortizedCost = derefFloat(amortizedCost)
+	summary.ListCost = derefFloat(listCost)
+	summary.ServiceCount = derefUint64(serviceCount)
+	summary.ResourceCount = derefUint64(resourceCount)
 	c.JSON(http.StatusOK, summary)
+}
+
+func derefFloat(v *float64) float64 {
+	if v != nil {
+		return *v
+	}
+	return 0
+}
+
+func derefUint64(v *uint64) uint64 {
+	if v != nil {
+		return *v
+	}
+	return 0
 }
 
 func (s *CostAnalyticsService) getTrends(c *gin.Context) {
@@ -417,7 +449,7 @@ func (s *CostAnalyticsService) getTrends(c *gin.Context) {
 	query := fmt.Sprintf(`SELECT date, sum(%s) as cost, sum(usage_quantity) as usage FROM costs_raw WHERE %s GROUP BY date ORDER BY date`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusOK, []gin.H{})
 		return
 	}
 	defer rows.Close()
@@ -429,6 +461,9 @@ func (s *CostAnalyticsService) getTrends(c *gin.Context) {
 		rows.Scan(&date, &cost, &usage)
 		results = append(results, gin.H{"date": date, "cost": cost, "usage": usage})
 	}
+	if results == nil {
+		results = []gin.H{}
+	}
 	c.JSON(http.StatusOK, results)
 }
 
@@ -436,7 +471,12 @@ func (s *CostAnalyticsService) getByService(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT service_name, sum(%s) as cost, sum(usage_quantity) as usage FROM costs_raw WHERE %s GROUP BY service_name ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
-	rows, _ := s.ch.Query(context.Background(), query)
+	rows, err := s.ch.Query(context.Background(), query)
+	if err != nil {
+		c.JSON(http.StatusOK, []gin.H{})
+		return
+	}
+	defer rows.Close()
 	var results []gin.H
 	for rows.Next() {
 		var svc string
@@ -444,7 +484,9 @@ func (s *CostAnalyticsService) getByService(c *gin.Context) {
 		rows.Scan(&svc, &cost, &usage)
 		results = append(results, gin.H{"service": svc, "cost": cost, "usage": usage})
 	}
-	rows.Close()
+	if results == nil {
+		results = []gin.H{}
+	}
 	c.JSON(http.StatusOK, results)
 }
 
@@ -452,7 +494,12 @@ func (s *CostAnalyticsService) getByApplication(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT application, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY application ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
-	rows, _ := s.ch.Query(context.Background(), query)
+	rows, err := s.ch.Query(context.Background(), query)
+	if err != nil {
+		c.JSON(http.StatusOK, []gin.H{})
+		return
+	}
+	defer rows.Close()
 	var results []gin.H
 	for rows.Next() {
 		var app string
@@ -460,7 +507,9 @@ func (s *CostAnalyticsService) getByApplication(c *gin.Context) {
 		rows.Scan(&app, &cost)
 		results = append(results, gin.H{"application": app, "cost": cost})
 	}
-	rows.Close()
+	if results == nil {
+		results = []gin.H{}
+	}
 	c.JSON(http.StatusOK, results)
 }
 
@@ -468,7 +517,12 @@ func (s *CostAnalyticsService) getByEnvironment(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT environment, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY environment ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
-	rows, _ := s.ch.Query(context.Background(), query)
+	rows, err := s.ch.Query(context.Background(), query)
+	if err != nil {
+		c.JSON(http.StatusOK, []gin.H{})
+		return
+	}
+	defer rows.Close()
 	var results []gin.H
 	for rows.Next() {
 		var env string
@@ -476,7 +530,9 @@ func (s *CostAnalyticsService) getByEnvironment(c *gin.Context) {
 		rows.Scan(&env, &cost)
 		results = append(results, gin.H{"environment": env, "cost": cost})
 	}
-	rows.Close()
+	if results == nil {
+		results = []gin.H{}
+	}
 	c.JSON(http.StatusOK, results)
 }
 
@@ -484,7 +540,12 @@ func (s *CostAnalyticsService) getByBusinessUnit(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT business_unit, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY business_unit ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
-	rows, _ := s.ch.Query(context.Background(), query)
+	rows, err := s.ch.Query(context.Background(), query)
+	if err != nil {
+		c.JSON(http.StatusOK, []gin.H{})
+		return
+	}
+	defer rows.Close()
 	var results []gin.H
 	for rows.Next() {
 		var bu string
@@ -492,7 +553,9 @@ func (s *CostAnalyticsService) getByBusinessUnit(c *gin.Context) {
 		rows.Scan(&bu, &cost)
 		results = append(results, gin.H{"business_unit": bu, "cost": cost})
 	}
-	rows.Close()
+	if results == nil {
+		results = []gin.H{}
+	}
 	c.JSON(http.StatusOK, results)
 }
 
@@ -500,7 +563,12 @@ func (s *CostAnalyticsService) getByRegion(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT region, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY region ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
-	rows, _ := s.ch.Query(context.Background(), query)
+	rows, err := s.ch.Query(context.Background(), query)
+	if err != nil {
+		c.JSON(http.StatusOK, []gin.H{})
+		return
+	}
+	defer rows.Close()
 	var results []gin.H
 	for rows.Next() {
 		var region string
@@ -508,7 +576,9 @@ func (s *CostAnalyticsService) getByRegion(c *gin.Context) {
 		rows.Scan(&region, &cost)
 		results = append(results, gin.H{"region": region, "cost": cost})
 	}
-	rows.Close()
+	if results == nil {
+		results = []gin.H{}
+	}
 	c.JSON(http.StatusOK, results)
 }
 
@@ -516,7 +586,12 @@ func (s *CostAnalyticsService) getByProvider(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT provider, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY provider ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
-	rows, _ := s.ch.Query(context.Background(), query)
+	rows, err := s.ch.Query(context.Background(), query)
+	if err != nil {
+		c.JSON(http.StatusOK, []gin.H{})
+		return
+	}
+	defer rows.Close()
 	var results []gin.H
 	for rows.Next() {
 		var provider string
@@ -524,17 +599,19 @@ func (s *CostAnalyticsService) getByProvider(c *gin.Context) {
 		rows.Scan(&provider, &cost)
 		results = append(results, gin.H{"provider": provider, "cost": cost})
 	}
-	rows.Close()
+	if results == nil {
+		results = []gin.H{}
+	}
 	c.JSON(http.StatusOK, results)
 }
 
 func (s *CostAnalyticsService) getKPIs(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	listCostCol := currencyColumn(c, "list_cost", "list_cost_brl")
 
-	var total float64
-	row := s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(start, end)))
-	row.Scan(&total)
+	total := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(start, end)))
+	listTotal := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", listCostCol, dateWhereClause(start, end)))
 
 	// Previous period of same duration
 	startT, _ := time.Parse("2006-01-02", start)
@@ -542,24 +619,46 @@ func (s *CostAnalyticsService) getKPIs(c *gin.Context) {
 	duration := endT.Sub(startT)
 	prevStart := startT.Add(-duration - 24*time.Hour).Format("2006-01-02")
 	prevEnd := endT.Add(-duration - 24*time.Hour).Format("2006-01-02")
-	var previous float64
-	row = s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(prevStart, prevEnd)))
-	row.Scan(&previous)
+	previous := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(prevStart, prevEnd)))
 
 	trend := 0.0
 	if previous > 0 {
 		trend = (total - previous) / previous
 	}
-	forecast := total * (1 + trend)
+	forecast := total
+	if total > 0 {
+		forecast = total * (1 + trend)
+	}
+
+	// Cost efficiency: how close paid cost is to list cost (1 = optimal, paid = list)
+	efficiency := 1.0
+	if listTotal > 0 {
+		efficiency = total / listTotal
+	}
 
 	currency := strings.ToUpper(c.DefaultQuery("currency", "USD"))
+	budgetUtil := s.computeBudgetUtilization(costCol)
 	kpis := []KPIData{
 		{Name: "Total Cost", Value: total, Unit: currency, Trend: trend, Status: statusForTrend(trend)},
 		{Name: "Forecast (next period)", Value: forecast, Unit: currency, Trend: trend, Status: statusForTrend(trend)},
-		{Name: "Cost Efficiency", Value: 0.85, Unit: "ratio", Trend: 0.03, Target: 0.90, Status: "warning"},
-		{Name: "Budget Utilization", Value: s.computeBudgetUtilization(costCol), Unit: "ratio", Trend: 0, Target: 0.80, Status: "good"},
+		{Name: "Cost Efficiency", Value: efficiency, Unit: "ratio", Trend: 0, Target: 0.90, Status: statusForValue(efficiency, 0.90)},
+		{Name: "Budget Utilization", Value: budgetUtil, Unit: "ratio", Trend: 0, Target: 0.80, Status: statusForValue(1-budgetUtil, 0.20)},
 	}
 	c.JSON(http.StatusOK, kpis)
+}
+
+func (s *CostAnalyticsService) sumCost(query string, args ...interface{}) float64 {
+	row := s.ch.QueryRow(context.Background(), query, args...)
+	var v *float64
+	row.Scan(&v)
+	return derefFloat(v)
+}
+
+func statusForValue(value, target float64) string {
+	if value < target {
+		return "warning"
+	}
+	return "good"
 }
 
 func statusForTrend(trend float64) string {
@@ -572,11 +671,11 @@ func statusForTrend(trend float64) string {
 func (s *CostAnalyticsService) getExecutiveDashboard(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	listCostCol := currencyColumn(c, "list_cost", "list_cost_brl")
 	currency := strings.ToUpper(c.DefaultQuery("currency", "USD"))
 
-	var totalCost float64
-	row := s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(start, end)))
-	row.Scan(&totalCost)
+	totalCost := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(start, end)))
+	listCost := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", listCostCol, dateWhereClause(start, end)))
 
 	topServices, _ := s.queryTop(fmt.Sprintf("SELECT service_name, sum(%s) FROM costs_raw WHERE %s GROUP BY service_name ORDER BY sum(%s) DESC LIMIT 5", costCol, dateWhereClause(start, end), costCol))
 	topApps, _ := s.queryTop(fmt.Sprintf("SELECT application, sum(%s) FROM costs_raw WHERE %s GROUP BY application ORDER BY sum(%s) DESC LIMIT 5", costCol, dateWhereClause(start, end), costCol))
@@ -587,28 +686,38 @@ func (s *CostAnalyticsService) getExecutiveDashboard(c *gin.Context) {
 	duration := endT.Sub(startT)
 	prevStart := startT.Add(-duration - 24*time.Hour).Format("2006-01-02")
 	prevEnd := endT.Add(-duration - 24*time.Hour).Format("2006-01-02")
-	var previousCost float64
-	row = s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(prevStart, prevEnd)))
-	row.Scan(&previousCost)
+	previousCost := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(prevStart, prevEnd)))
 	forecast := totalCost
 	if previousCost > 0 {
 		forecast = totalCost * (1 + (totalCost-previousCost)/previousCost)
 	}
 
+	// Potential savings: difference between list cost and effective cost
+	potentialSavings := math.Max(0, listCost-totalCost)
+
 	c.JSON(http.StatusOK, gin.H{
 		"total_cost":        totalCost,
 		"forecast_30d":      forecast,
-		"potential_savings": totalCost * 0.15,
+		"potential_savings": potentialSavings,
 		"top_services":      topServices,
 		"top_applications":  topApps,
 		"currency":          currency,
 		"kpis": []gin.H{
 			{"name": "Total Cost", "value": totalCost},
 			{"name": "Forecast", "value": forecast},
-			{"name": "Cost Efficiency", "value": 0.85},
+			{"name": "Cost Efficiency", "value": s.computeCostEfficiency(costCol, listCostCol)},
 			{"name": "Budget Utilization", "value": s.computeBudgetUtilization(costCol)},
 		},
 	})
+}
+
+func (s *CostAnalyticsService) computeCostEfficiency(costCol, listCostCol string) float64 {
+	total := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 30", costCol))
+	list := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 30", listCostCol))
+	if list > 0 {
+		return total / list
+	}
+	return 1
 }
 
 func (s *CostAnalyticsService) getAnomalies(c *gin.Context) {
@@ -785,9 +894,7 @@ func (s *CostAnalyticsService) getRecommendations(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
 
-	var totalCost float64
-	row := s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(start, end)))
-	row.Scan(&totalCost)
+	totalCost := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(start, end)))
 
 	// Top services by cost
 	serviceRows, err := s.ch.Query(context.Background(), fmt.Sprintf(`SELECT service_name, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY service_name ORDER BY cost DESC LIMIT 10`, costCol, dateWhereClause(start, end)))
@@ -813,6 +920,7 @@ func (s *CostAnalyticsService) getRecommendations(c *gin.Context) {
 		if pct < 5 {
 			continue
 		}
+		savings := cost * 0.1
 		recommendations = append(recommendations, gin.H{
 			"id":                  fmt.Sprintf("rec-%d", idx),
 			"category":            "savings",
@@ -824,7 +932,7 @@ func (s *CostAnalyticsService) getRecommendations(c *gin.Context) {
 			"region":              "",
 			"current_cost":        cost,
 			"projected_cost":      cost * 0.9,
-			"savings":             cost * 0.1,
+			"savings":             savings,
 			"savings_percentage":  10.0,
 			"confidence":          0.75,
 			"priority":            "medium",
@@ -837,10 +945,17 @@ func (s *CostAnalyticsService) getRecommendations(c *gin.Context) {
 		idx++
 	}
 
+	totalSavings := 0.0
+	for _, r := range recommendations {
+		if v, ok := r["savings"].(float64); ok {
+			totalSavings += v
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"provider":             c.Query("provider"),
 		"account_id":           c.Query("account_id"),
-		"total_savings":        totalCost * 0.1,
+		"total_savings":        totalSavings,
 		"total_opportunities":  len(recommendations),
 		"recommendations":      recommendations,
 		"generated_at":         time.Now().UTC(),
@@ -898,7 +1013,7 @@ func (s *CostAnalyticsService) getBudgets(c *gin.Context) {
 		costCol = "effective_cost_brl"
 	}
 
-	rows, err := s.pg.Query(`SELECT id, name, amount, spent, period, start_date, end_date, alert_threshold, provider, account_id, created_at FROM budgets`)
+	rows, err := s.pg.Query(`SELECT id, name, amount, spent, period, start_date, end_date, alert_threshold, provider, account_id, created_at FROM budgets ORDER BY created_at DESC`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -908,13 +1023,26 @@ func (s *CostAnalyticsService) getBudgets(c *gin.Context) {
 	var budgets []Budget
 	for rows.Next() {
 		var b Budget
-		rows.Scan(&b.ID, &b.Name, &b.Amount, &b.Spent, &b.Period, &b.StartDate, &b.EndDate, &b.AlertThreshold, &b.Provider, &b.AccountID, &b.CreatedAt)
+		var startDate, endDate sql.NullTime
+		if err := rows.Scan(&b.ID, &b.Name, &b.Amount, &b.Spent, &b.Period, &startDate, &endDate, &b.AlertThreshold, &b.Provider, &b.AccountID, &b.CreatedAt); err != nil {
+			log.Printf("[BUDGETS] Scan error: %v", err)
+			continue
+		}
+		if startDate.Valid {
+			b.StartDate = startDate.Time
+		}
+		if endDate.Valid {
+			b.EndDate = endDate.Time
+		}
 		// Compute spent from ClickHouse real data
-		startDate := b.StartDate.Format("2006-01-02")
-		endDate := b.EndDate.Format("2006-01-02")
-		b.Spent = s.computeSpent(b.Provider, b.AccountID, costCol, startDate, endDate)
+		startStr := b.StartDate.Format("2006-01-02")
+		endStr := b.EndDate.Format("2006-01-02")
+		b.Spent = s.computeSpent(b.Provider, b.AccountID, costCol, startStr, endStr)
 		b.Remaining = b.Amount - b.Spent
 		budgets = append(budgets, b)
+	}
+	if budgets == nil {
+		budgets = []Budget{}
 	}
 	c.JSON(http.StatusOK, budgets)
 }
@@ -930,20 +1058,22 @@ func (s *CostAnalyticsService) computeSpent(provider, accountID, costCol, startD
 		query += " AND billing_account_id = ?"
 		args = append(args, accountID)
 	}
-	var spent float64
+	var spent *float64
 	row := s.ch.QueryRow(context.Background(), query, args...)
 	row.Scan(&spent)
-	return spent
+	return derefFloat(spent)
 }
 
 func (s *CostAnalyticsService) computeBudgetUtilization(costCol string) float64 {
-	var budgeted, spent float64
+	var budgeted, spent *float64
 	pgRow := s.pg.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM budgets`)
 	pgRow.Scan(&budgeted)
 	chRow := s.ch.QueryRow(context.Background(), fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE date >= today() - 30", costCol))
 	chRow.Scan(&spent)
-	if budgeted > 0 {
-		return spent / budgeted
+	b := derefFloat(budgeted)
+	sv := derefFloat(spent)
+	if b > 0 {
+		return sv / b
 	}
 	return 0
 }
@@ -999,16 +1129,25 @@ func (s *CostAnalyticsService) getUsers(c *gin.Context) {
 		var active bool
 		var lastLogin sql.NullTime
 		var created time.Time
-		rows.Scan(&id, &email, &name, &roles, &active, &lastLogin, &created)
-		users = append(users, gin.H{
+		if err := rows.Scan(&id, &email, &name, &roles, &active, &lastLogin, &created); err != nil {
+			log.Printf("[USERS] Scan error: %v", err)
+			continue
+		}
+		u := gin.H{
 			"id":         id,
 			"email":      email,
 			"name":       name,
 			"roles":      roles,
 			"active":     active,
-			"last_login": lastLogin.Time,
 			"created_at": created,
-		})
+		}
+		if lastLogin.Valid {
+			u["last_login"] = lastLogin.Time
+		}
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []gin.H{}
 	}
 	c.JSON(http.StatusOK, users)
 }

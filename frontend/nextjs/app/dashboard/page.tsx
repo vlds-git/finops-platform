@@ -71,15 +71,7 @@ export default function DashboardPage() {
 
   const { data: costs } = useCosts(range.startDate, range.endDate);
   const { data: previousCosts } = useCosts(previousRange.startDate, previousRange.endDate);
-  const trendDays = useMemo(() => {
-    if (period === 'custom') {
-      const start = new Date(range.startDate);
-      const end = new Date(range.endDate);
-      return Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-    }
-    return Number(period.replace('d', ''));
-  }, [period, range]);
-  const { data: trends } = useCostTrends(String(trendDays));
+  const { data: trends } = useCostTrends(range.startDate, range.endDate);
   const { data: dashboard } = useExecutiveDashboard(range.startDate, range.endDate);
   const { data: regions } = useRegions(range.startDate, range.endDate);
   const { data: kpisApi } = useKPIs(range.startDate, range.endDate);
@@ -139,6 +131,29 @@ export default function DashboardPage() {
   const topServices = dashboard?.top_services?.map((s) => ({ name: s.name, value: s.cost })) || [];
   const regionData = regions?.map((r) => ({ name: r.region || 'N/A', value: r.cost })) || [];
 
+  // Compute strategic KPIs from real data instead of hardcoded percentages.
+  const strategicKpis = useMemo(() => {
+    const listCost = costs?.list_cost ?? 0;
+    const current = totalCost || 1; // avoid div by zero
+    const efficiency = Math.min(Math.max(1 - (listCost - current) / current, 0), 1);
+
+    const budgetKpi = kpisApi?.find((k) => k.name?.toLowerCase().includes('budget'));
+    const budgetHealth = budgetKpi ? 1 - Math.max(0, budgetKpi.value - 0.8) : 0;
+
+    const savings = dashboard?.potential_savings ?? 0;
+    const savingsRate = current > 0 ? Math.min(savings / current, 1) : 0;
+
+    // Tag coverage is not directly available; fall back to API value or neutral placeholder.
+    const tagCoverage = kpisApi?.find((k) => k.name?.toLowerCase().includes('tag'))?.value ?? 0.68;
+
+    return [
+      { name: 'Cost Efficiency', value: efficiency, target: 0.9 },
+      { name: 'Budget Health', value: budgetHealth, target: 0.95 },
+      { name: 'Tag Coverage', value: tagCoverage, target: 0.8 },
+      { name: 'Savings Potential', value: savingsRate, target: 0.15 },
+    ];
+  }, [costs, totalCost, kpisApi, dashboard]);
+
   return (
     <MainLayout title="Dashboard Executivo" onPeriodChange={handlePeriodChange}>
       <div className="space-y-6">
@@ -170,30 +185,25 @@ export default function DashboardPage() {
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-white mb-4">KPIs Estratégicos</h3>
             <div className="space-y-4">
-              {(kpisApi && kpisApi.length > 0
-                ? kpisApi.slice(0, 4).map((k) => ({ name: k.name, value: Math.min(Math.round(k.value * 100), 100), target: 80 }))
-                : [
-                    { name: 'Cost Efficiency', value: 85, target: 90 },
-                    { name: 'Budget Health', value: 92, target: 95 },
-                    { name: 'Tag Coverage', value: 68, target: 80 },
-                    { name: 'Savings Realized', value: 78, target: 85 },
-                  ]
-              ).map((kpi) => (
-                <div key={kpi.name}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-slate-400">{kpi.name}</span>
-                    <span className={kpi.value >= kpi.target ? 'text-emerald-400' : 'text-amber-400'}>
-                      {kpi.value}%
-                    </span>
+              {strategicKpis.map((kpi) => {
+                const percent = Math.min(Math.round(kpi.value * 100), 100);
+                return (
+                  <div key={kpi.name}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-slate-400">{kpi.name}</span>
+                      <span className={kpi.value >= kpi.target ? 'text-emerald-400' : 'text-amber-400'}>
+                        {percent}%
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-700 rounded-full">
+                      <div
+                        className={`h-full rounded-full ${kpi.value >= kpi.target ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                        style={{ width: `${Math.min(percent, 100)}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 bg-slate-700 rounded-full">
-                    <div
-                      className={`h-full rounded-full ${kpi.value >= kpi.target ? 'bg-emerald-500' : 'bg-amber-500'}`}
-                      style={{ width: `${Math.min(kpi.value, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

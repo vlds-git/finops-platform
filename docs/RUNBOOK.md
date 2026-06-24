@@ -347,6 +347,42 @@ curl -X POST http://anomaly-detection:8002/api/v1/anomalies   -H "Content-Type: 
 
 ---
 
+## Redeploy do Zero
+
+Use apenas quando for aceitável perder dados locais (PostgreSQL, ClickHouse, Kafka, Redis, Grafana, Prometheus). Todos os dados serão re-ingeridos a partir do bucket Huawei OBS.
+
+```bash
+cd /finops-platform
+
+# Opcional: atualizar codigo
+git pull origin Teste-Docker-Compose
+
+# Executar redeploy completo
+./scripts/full-redeploy.sh
+
+# O script perguntara confirmacao, apagara volumes, rebuildara imagens,
+# subira a stack, aplicara migrations do PostgreSQL e exibira as credenciais.
+```
+
+Apos o script, dispare a ingestao inicial:
+
+```bash
+curl -X POST http://localhost:8081/api/v1/ingestion/trigger \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"huawei","bucket":"focusfinops","prefix":"daily-exports/Daily_Cost_Export_Focus1-0/","account_id":"hw-account-001"}'
+```
+
+Monitore até estabilizar:
+
+```bash
+# Logs
+docker logs -f finops-ingestion
+docker logs -f finops-cost-analytics
+
+# Verificar duplicatas (count deve ficar proximo de uniqExact)
+watch -n 5 'docker exec finops-clickhouse clickhouse-client --database=finops -q "SELECT count(), uniqExact(*) FROM costs_raw"'
+```
+
 ## Troubleshooting
 
 ### API Gateway
@@ -418,6 +454,32 @@ kubectl rollout restart deployment/ingestion-service -n finops
 
 **Sintoma:** Dashboards vazios, queries lentas, erros 500
 **Causas:** ClickHouse indisponível, schema desatualizado, Kafka consumer parado
+
+### Duplicatas no ClickHouse
+
+**Sintoma:** Contagem de registros em `costs_raw` é muito maior que o esperado (ex.: 5M vs 500k únicos); dashboards inflam custos continuamente.
+**Causas:** O `cost-analytics` consumia mensagens do Kafka sem comitar offsets, então reprocessava o tópico repetidamente. Outras causas: processamento concorrente do ingestion-service, reprocessamento manual ou restarts do consumer durante ingestão.
+**Diagnóstico:**
+```bash
+# Contagem total vs distinta
+clickhouse-client --database=finops -q "SELECT count(), uniqExact(*) FROM costs_raw"
+
+# Verificar se o cost-analytics continua inserindo sem novos arquivos no OBS
+docker logs --tail 50 finops-cost-analytics | grep "Persisted record"
+```
+**Correção:**
+```bash
+# Na VM, a partir da raiz do repositório. O script:
+# - para ingestion/cost-analytics
+# - deduplica costs_raw via SELECT DISTINCT *
+# - reseta offsets do consumer group 'cost-analytics' para latest
+# - reinicia os serviços
+./scripts/dedup_clickhouse.sh
+```
+**Prevenção:** 
+- `cost-analytics` agora comita offsets após cada inserção bem-sucedida no ClickHouse.
+- `cost-analytics` usa `StartOffset: kafka.LastOffset` para evitar reprocessar o tópico inteiro se o consumer group for recriado.
+- `ingestion-service` possui um lock global (`processMu`) que evita múltiplas ingestões concorrentes para a mesma conta.
 **Diagnóstico:**
 ```bash
 # Verifique ClickHouse

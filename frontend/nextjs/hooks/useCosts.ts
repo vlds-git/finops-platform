@@ -2,27 +2,32 @@
 
 import { useQuery } from 'react-query';
 import api from '@/lib/api';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import type { CostSummary, CostTrend, ServiceCost, ExecutiveDashboard, OperationalDashboard } from '@/types';
 
 export function useCosts(startDate?: string, endDate?: string, provider?: string) {
+  const { currency } = useCurrency();
   return useQuery<CostSummary>(
-    ['costs', startDate, endDate, provider],
-    () => api.get('/costs', { params: { start_date: startDate, end_date: endDate, provider } }).then(r => r.data),
+    ['costs', startDate, endDate, provider, currency],
+    () => api.get('/costs', { params: { start_date: startDate, end_date: endDate, provider, currency } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }
   );
 }
 
-export function useCostTrends(period = '30') {
+export function useCostTrends(startDate?: string, endDate?: string) {
+  const { currency } = useCurrency();
   return useQuery<CostTrend[]>(
-    ['costs-trends', period],
-    () => api.get('/costs/trends', { params: { period: period.replace('d', '') } }).then(r => r.data)
+    ['costs-trends', startDate, endDate, currency],
+    () => api.get('/costs/trends', { params: { start_date: startDate, end_date: endDate, currency } }).then(r => r.data),
+    { enabled: !!startDate && !!endDate }
   );
 }
 
 export function useServices(startDate?: string, endDate?: string) {
+  const { currency } = useCurrency();
   return useQuery<ServiceCost[]>(
-    ['services', startDate, endDate],
-    () => api.get('/costs/services', { params: { start_date: startDate, end_date: endDate } }).then(r => r.data),
+    ['services', startDate, endDate, currency],
+    () => api.get('/costs/services', { params: { start_date: startDate, end_date: endDate, currency } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }
   );
 }
@@ -33,9 +38,10 @@ export interface RegionCost {
 }
 
 export function useRegions(startDate?: string, endDate?: string) {
+  const { currency } = useCurrency();
   return useQuery<RegionCost[]>(
-    ['regions', startDate, endDate],
-    () => api.get('/costs/regions', { params: { start_date: startDate, end_date: endDate } }).then(r => r.data),
+    ['regions', startDate, endDate, currency],
+    () => api.get('/costs/regions', { params: { start_date: startDate, end_date: endDate, currency } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }
   );
 }
@@ -46,33 +52,37 @@ export interface ProviderCost {
 }
 
 export function useProviders(startDate?: string, endDate?: string) {
+  const { currency } = useCurrency();
   return useQuery<ProviderCost[]>(
-    ['providers', startDate, endDate],
-    () => api.get('/costs/providers', { params: { start_date: startDate, end_date: endDate } }).then(r => r.data),
+    ['providers', startDate, endDate, currency],
+    () => api.get('/costs/providers', { params: { start_date: startDate, end_date: endDate, currency } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }
   );
 }
 
 export function useKPIs(startDate?: string, endDate?: string) {
+  const { currency } = useCurrency();
   return useQuery<{ name: string; value: number; unit?: string }[]>(
-    ['kpis', startDate, endDate],
-    () => api.get('/kpis', { params: { start_date: startDate, end_date: endDate } }).then(r => r.data),
+    ['kpis', startDate, endDate, currency],
+    () => api.get('/kpis', { params: { start_date: startDate, end_date: endDate, currency } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }
   );
 }
 
 export function useExecutiveDashboard(startDate?: string, endDate?: string) {
+  const { currency } = useCurrency();
   return useQuery<ExecutiveDashboard>(
-    ['executive-dashboard', startDate, endDate],
-    () => api.get('/dashboard/executive', { params: { start_date: startDate, end_date: endDate } }).then(r => r.data),
+    ['executive-dashboard', startDate, endDate, currency],
+    () => api.get('/dashboard/executive', { params: { start_date: startDate, end_date: endDate, currency } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }
   );
 }
 
 export function useOperationalDashboard(startDate?: string, endDate?: string) {
+  const { currency } = useCurrency();
   return useQuery<OperationalDashboard>(
-    ['operational-dashboard', startDate, endDate],
-    () => api.get('/dashboard/operational', { params: { start_date: startDate, end_date: endDate } }).then(r => r.data),
+    ['operational-dashboard', startDate, endDate, currency],
+    () => api.get('/dashboard/operational', { params: { start_date: startDate, end_date: endDate, currency } }).then(r => r.data),
     { enabled: !!startDate && !!endDate }
   );
 }

@@ -38,6 +38,7 @@ type IngestionService struct {
 	pg          *sql.DB
 	checkpoints map[string]string
 	mu          sync.RWMutex
+	processMu   sync.Mutex
 }
 
 type FocusRecord struct {
@@ -233,6 +234,10 @@ func (s *IngestionService) triggerHandler(c *gin.Context) {
 }
 
 func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID string) {
+	// Prevent concurrent ingestion for the same provider/account to avoid duplicate records.
+	s.processMu.Lock()
+	defer s.processMu.Unlock()
+
 	log.Printf("[INGESTION] Starting for provider=%s bucket=%s prefix=%s account=%s", provider, bucket, prefix, accountID)
 
 	checkpoint := s.loadCheckpoint(provider, accountID)

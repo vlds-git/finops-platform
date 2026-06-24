@@ -52,7 +52,7 @@ export default function ForecastPage() {
   }, [range]);
 
   const { data: forecast } = useForecast(range.startDate, range.endDate, 'huawei', undefined, forecastDays);
-  const { data: trends } = useCostTrends(String(trendDays));
+  const { data: trends } = useCostTrends(range.startDate, range.endDate);
 
   const historical = (trends || []).map((p) => ({ date: p.date, value: p.cost }));
   const forecastData = forecast?.forecast || [];

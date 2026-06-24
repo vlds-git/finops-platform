@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { useQueryClient } from 'react-query';
 
 type Currency = 'USD' | 'BRL';
 
@@ -17,6 +18,7 @@ const CurrencyContext = createContext<CurrencyContextType>({
 });
 
 export function CurrencyProvider({ children, defaultRate = 5.15 }: { children: ReactNode; defaultRate?: number }) {
+  const queryClient = useQueryClient();
   const [currency, setCurrencyState] = useState<Currency>('USD');
   const [rate, setRate] = useState<number>(defaultRate);
 
@@ -45,6 +47,19 @@ export function CurrencyProvider({ children, defaultRate = 5.15 }: { children: R
     if (typeof window !== 'undefined') {
       localStorage.setItem('finops-currency', value);
     }
+    // Invalidate all cost/dashboard queries so they refetch with the new currency
+    queryClient.invalidateQueries({ queryKey: ['costs'] });
+    queryClient.invalidateQueries({ queryKey: ['costs-trends'] });
+    queryClient.invalidateQueries({ queryKey: ['services'] });
+    queryClient.invalidateQueries({ queryKey: ['regions'] });
+    queryClient.invalidateQueries({ queryKey: ['providers'] });
+    queryClient.invalidateQueries({ queryKey: ['kpis'] });
+    queryClient.invalidateQueries({ queryKey: ['executive-dashboard'] });
+    queryClient.invalidateQueries({ queryKey: ['operational-dashboard'] });
+    queryClient.invalidateQueries({ queryKey: ['forecast'] });
+    queryClient.invalidateQueries({ queryKey: ['anomalies'] });
+    queryClient.invalidateQueries({ queryKey: ['recommendations'] });
+    queryClient.invalidateQueries({ queryKey: ['budgets'] });
   };
 
   return (
