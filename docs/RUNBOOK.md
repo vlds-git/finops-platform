@@ -900,7 +900,7 @@ kubectl rollout restart statefulset/clickhouse -n finops
 psql -h postgres -U finops -c "UPDATE ingestion_checkpoints SET last_file='', last_offset=0"
 
 # 5.2. Trigger reprocessamento
-curl -X POST http://ingestion-service:8081/ingestion/trigger   -d '{"provider":"huawei","bucket":"finops-focus-hw","account_id":"hw-001"}'
+curl -X POST http://ingestion-service:8081/api/v1/ingestion/trigger   -d '{"provider":"huawei","bucket":"focusfinops","prefix":"daily-exports/Daily_Cost_Export_Focus1-0/","account_id":"hw-001"}'
 
 # 6. Verifique
 clickhouse-client -q "SELECT count() FROM costs"
@@ -980,7 +980,7 @@ psql -h postgres -U finops -c "UPDATE ingestion_checkpoints SET last_file='', la
 kubectl rollout restart deployment/ingestion-service -n finops
 
 # 7. Trigger manual
-curl -X POST http://ingestion-service:8081/ingestion/trigger   -d '{"provider":"huawei","bucket":"finops-focus-hw","prefix":"exports/","account_id":"hw-001"}'
+curl -X POST http://ingestion-service:8081/api/v1/ingestion/trigger   -d '{"provider":"huawei","bucket":"focusfinops","prefix":"daily-exports/Daily_Cost_Export_Focus1-0/","account_id":"hw-001"}'
 ```
 
 **Prevenção:**

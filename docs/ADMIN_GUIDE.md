@@ -211,8 +211,8 @@ curl -X POST http://localhost:8080/api/v1/admin/cloud-accounts   -H "Authorizati
     "access_key": "AKIA...",
     "secret_key": "secret...",
     "endpoint": "obs.sa-brazil-1.myhuaweicloud.com",
-    "bucket": "finops-focus-hw-dev",
-    "prefix": "exports/",
+    "bucket": "focusfinops",
+    "prefix": "daily-exports/Daily_Cost_Export_Focus1-0/",
     "active": true
   }'
 ```
@@ -231,7 +231,7 @@ curl -X POST http://localhost:8080/api/v1/admin/cloud-accounts   -H "Authorizati
 psql -h postgres -U finops -d finops
 
 INSERT INTO cloud_accounts (provider, account_id, account_name, access_key, secret_key, endpoint, bucket, prefix, active) VALUES
-('huawei', 'hw-account-002', 'Desenvolvimento Huawei', 'AKIA...', 'secret...', 'obs.sa-brazil-1.myhuaweicloud.com', 'finops-focus-hw-dev', 'exports/', true);
+('huawei', 'hw-account-002', 'Desenvolvimento Huawei', 'AKIA...', 'secret...', 'obs.sa-brazil-1.myhuaweicloud.com', 'focusfinops', 'daily-exports/Daily_Cost_Export_Focus1-0/', true);
 ```
 
 ---
@@ -249,7 +249,7 @@ INSERT INTO cloud_accounts (provider, account_id, account_name, access_key, secr
 
 1. **Crie o bucket no console Huawei Cloud:**
    - Navegue para Object Storage Service
-   - Crie bucket: `finops-focus-hw-prod`
+   - Crie bucket: `focusfinops`
    - Região: `sa-brazil-1`
    - Storage Class: `Standard`
    - Versioning: `Enabled`
@@ -268,7 +268,7 @@ INSERT INTO cloud_accounts (provider, account_id, account_name, access_key, secr
    - No console de billing do provedor, configure export para OBS
    - Formato: CSV ou Parquet
    - Frequência: Diária
-   - Prefixo: `exports/YYYY/MM/DD/`
+   - Prefixo: `daily-exports/Daily_Cost_Export_Focus1-0/`
 
 5. **Cadastre na plataforma:**
    - Use API ou PostgreSQL (seção acima)
@@ -276,7 +276,7 @@ INSERT INTO cloud_accounts (provider, account_id, account_name, access_key, secr
 
 6. **Teste a conexão:**
    ```bash
-   curl -X POST http://localhost:8080/api/v1/ingestion/trigger      -H "Authorization: Bearer <TOKEN>"      -H "Content-Type: application/json"      -d '{"provider":"huawei","bucket":"finops-focus-hw-prod","prefix":"exports/","account_id":"hw-account-001"}'
+   curl -X POST http://localhost:8080/api/v1/ingestion/trigger      -H "Authorization: Bearer <TOKEN>"      -H "Content-Type: application/json"      -d '{"provider":"huawei","bucket":"focusfinops","prefix":"daily-exports/Daily_Cost_Export_Focus1-0/","account_id":"hw-account-001"}'
    ```
 
 7. **Verifique status:**

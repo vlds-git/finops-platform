@@ -230,10 +230,10 @@ INSERT INTO users (email, name, password_hash, roles) VALUES
 ('viewer@finops.local', 'Viewer', 'viewer123', ARRAY['viewer'])
 ON CONFLICT DO NOTHING;
 
-INSERT INTO cloud_accounts (provider, account_id, account_name, bucket, prefix) VALUES
-('huawei', 'hw-account-001', 'Produção Huawei', 'finops-focus-hw', 'exports/'),
-('azure', 'az-sub-001', 'Produção Azure', 'finops-focus-az', 'billing/'),
-('aws', 'aws-account-001', 'Produção AWS', 'finops-focus-aws', 'cur/')
+INSERT INTO cloud_accounts (provider, account_id, account_name, bucket, prefix, active) VALUES
+('huawei', 'hw-account-001', 'Produção Huawei', 'focusfinops', 'daily-exports/Daily_Cost_Export_Focus1-0/', true),
+('azure', 'az-sub-001', 'Produção Azure', 'finops-focus-az', 'billing/', false),
+('aws', 'aws-account-001', 'Produção AWS', 'finops-focus-aws', 'cur/', false)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO budgets (name, amount, period, start_date, end_date, alert_threshold, provider, account_id) VALUES
