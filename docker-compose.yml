@@ -372,6 +372,8 @@ services:
     container_name: finops-frontend
     ports:
       - "3000:3000"
+    environment:
+      API_GATEWAY_URL: http://api-gateway:8080
     depends_on:
       api-gateway:
         condition: service_started
