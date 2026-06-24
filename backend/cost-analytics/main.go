@@ -104,6 +104,10 @@ func main() {
 		log.Fatal(err)
 	}
 
+	if err := ensureClickHouseSchema(chConn); err != nil {
+		log.Fatalf("Failed to ensure ClickHouse schema: %v", err)
+	}
+
 	kafkaRdr := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: []string{getEnv("KAFKA_BROKERS", "kafka:9092")},
 		Topic:   "cost.raw",
@@ -155,6 +159,127 @@ func main() {
 	port := getEnv("PORT", "8082")
 	log.Printf("Cost Analytics starting on port %s", port)
 	r.Run(":" + port)
+}
+
+func ensureClickHouseSchema(ch driver.Conn) error {
+	ctx := context.Background()
+
+	// Ensure database exists. Use the configured connection first; if it fails,
+	// open a temporary connection to the 'default' database to create it.
+	if err := ch.Exec(ctx, "CREATE DATABASE IF NOT EXISTS finops"); err != nil {
+		log.Printf("[SCHEMA] Could not create database with configured connection: %v", err)
+		log.Printf("[SCHEMA] Retrying with 'default' database...")
+		tmpCh, err := clickhouse.Open(&clickhouse.Options{
+			Addr: []string{getEnv("CLICKHOUSE_ADDR", "clickhouse:9000")},
+			Auth: clickhouse.Auth{
+				Database: "default",
+				Username: getEnv("CLICKHOUSE_USER", "default"),
+				Password: getEnv("CLICKHOUSE_PASSWORD", ""),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to open temporary ClickHouse connection: %w", err)
+		}
+		defer tmpCh.Close()
+		if err := tmpCh.Exec(ctx, "CREATE DATABASE IF NOT EXISTS finops"); err != nil {
+			return fmt.Errorf("failed to create database finops: %w", err)
+		}
+	}
+
+	schemaDDL := `
+CREATE TABLE IF NOT EXISTS finops.costs_raw (
+    provider String,
+    billing_account_id String,
+    service_name String,
+    resource_type String,
+    resource_id String,
+    region String,
+    usage_quantity Float64,
+    usage_unit String,
+    effective_cost Float64,
+    effective_cost_brl Float64,
+    list_cost Float64,
+    list_cost_brl Float64,
+    contracted_cost Float64,
+    contracted_cost_brl Float64,
+    amortized_cost Float64,
+    amortized_cost_brl Float64,
+    date Date,
+    environment String,
+    application String,
+    business_unit String,
+    tags Map(String, String)
+) ENGINE = MergeTree()
+ORDER BY (provider, date, service_name)
+PARTITION BY toYYYYMM(date)
+TTL date + INTERVAL 36 MONTH;
+
+CREATE TABLE IF NOT EXISTS finops.costs_daily (
+    provider String,
+    service_name String,
+    region String,
+    date Date,
+    total_cost Float64,
+    total_cost_brl Float64,
+    total_usage Float64,
+    environment String,
+    application String,
+    business_unit String
+) ENGINE = MergeTree()
+ORDER BY (provider, date, service_name)
+PARTITION BY toYYYYMM(date);
+
+CREATE TABLE IF NOT EXISTS finops.anomalies (
+    id UUID DEFAULT generateUUIDv4(),
+    service_name String,
+    region String,
+    date Date,
+    expected_value Float64,
+    actual_value Float64,
+    deviation Float64,
+    severity String,
+    detected_at DateTime
+) ENGINE = MergeTree()
+ORDER BY (date, service_name);
+
+CREATE TABLE IF NOT EXISTS finops.forecasts (
+    service_name String,
+    region String,
+    forecast_date Date,
+    predicted_cost Float64,
+    predicted_cost_brl Float64,
+    confidence_lower Float64,
+    confidence_upper Float64,
+    model_version String,
+    created_at DateTime
+) ENGINE = MergeTree()
+ORDER BY (forecast_date, service_name);
+
+CREATE TABLE IF NOT EXISTS finops.recommendations (
+    id UUID DEFAULT generateUUIDv4(),
+    category String,
+    title String,
+    description String,
+    potential_savings Float64,
+    potential_savings_brl Float64,
+    priority String,
+    status String,
+    created_at DateTime
+) ENGINE = MergeTree()
+ORDER BY (created_at, category);
+`
+	statements := strings.Split(schemaDDL, ";")
+	for _, stmt := range statements {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+		if err := ch.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to apply ClickHouse schema statement: %w\nstatement: %s", err, stmt)
+		}
+	}
+	log.Printf("[SCHEMA] ClickHouse schema ensured")
+	return nil
 }
 
 func (s *CostAnalyticsService) consumeKafka() {
