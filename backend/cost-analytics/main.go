@@ -152,8 +152,6 @@ func main() {
 	api.DELETE("/admin/users/:id", svc.deleteUser)
 	api.GET("/admin/audit", svc.getAudit)
 
-	api.GET("/accounts", svc.getAccounts)
-
 	port := getEnv("PORT", "8082")
 	log.Printf("Cost Analytics starting on port %s", port)
 	r.Run(":" + port)
