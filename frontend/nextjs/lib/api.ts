@@ -20,6 +20,8 @@ const redirectToLogin = () => {
   }
 };
 
+// If NEXT_PUBLIC_API_URL is set, use it; otherwise use relative /api/v1
+// which is rewritten by next.config.js to the API Gateway.
 const rawBaseURL = process.env.NEXT_PUBLIC_API_URL || '';
 const baseURL = rawBaseURL
   ? rawBaseURL.replace(/\/?$/, '') + '/api/v1'

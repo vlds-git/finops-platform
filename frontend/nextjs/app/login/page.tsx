@@ -24,7 +24,14 @@ export default function LoginPage() {
       router.push('/dashboard');
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || 'Erro de autenticação');
+        if (!err.response) {
+          setError('Não foi possível conectar à API. Verifique se o serviço está disponível e a URL de API.');
+          console.error('Login network error:', err.message);
+        } else if (err.response.status === 401) {
+          setError('Credenciais inválidas.');
+        } else {
+          setError(err.response?.data?.error || 'Erro de autenticação');
+        }
       } else {
         setError('Erro de autenticação');
       }
