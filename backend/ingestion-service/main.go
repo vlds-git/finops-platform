@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -249,7 +250,10 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 		Recursive: true,
 	})
 
-	var processed int
+	// FOCUS daily exports are cumulative per month. To avoid duplicates and keep
+	// the most up-to-date corrections/credits, group files by month prefix and
+	// process only the latest file for each month.
+	latestByMonth := make(map[string]minio.ObjectInfo)
 	for object := range objectCh {
 		if object.Err != nil {
 			log.Printf("[INGESTION] ListObjects error: %v", object.Err)
@@ -261,11 +265,41 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 		if strings.HasSuffix(file, "/") {
 			continue
 		}
-		if file <= checkpoint {
+		if !isDataFile(file) {
 			continue
 		}
 
-		log.Printf("[INGESTION] Processing file: %s", file)
+		month := monthPrefixFromFile(prefix, file)
+		if month == "" {
+			continue
+		}
+		existing, ok := latestByMonth[month]
+		if !ok || file > existing.Key {
+			latestByMonth[month] = object
+		}
+	}
+
+	// Sort months so the checkpoint is deterministic (lexicographic order).
+	var months []string
+	for m := range latestByMonth {
+		months = append(months, m)
+	}
+	sort.Strings(months)
+
+	var processed int
+	for _, month := range months {
+		object := latestByMonth[month]
+		file := object.Key
+
+		// Skip already processed files. The checkpoint is the last globally
+		// processed file; because months are sorted lexicographically, any
+		// previously processed latest file will be <= checkpoint.
+		if file <= checkpoint {
+			log.Printf("[INGESTION] Skipping already processed latest file for month=%s: %s", month, file)
+			continue
+		}
+
+		log.Printf("[INGESTION] Processing latest file for month=%s: %s (size=%d)", month, file, object.Size)
 
 		reader, err := s.obsClient.GetObject(ctx, bucket, file, minio.GetObjectOptions{})
 		if err != nil {
@@ -282,7 +316,7 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 			continue
 		}
 
-		log.Printf("[INGESTION] Publishing %d records to Kafka", len(records))
+		log.Printf("[INGESTION] Publishing %d records to Kafka for month=%s", len(records), month)
 		batchSize := 1000
 		var messages []kafka.Message
 		sent := 0
@@ -299,7 +333,7 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 				continue
 			}
 			messages = append(messages, kafka.Message{
-				Key:   []byte(fmt.Sprintf("%s-%s", provider, accountID)),
+				Key:   []byte(fmt.Sprintf("%s-%s-%s", provider, accountID, month)),
 				Value: data,
 			})
 
@@ -329,6 +363,34 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 	}
 
 	log.Printf("[INGESTION] Completed for provider=%s account=%s processed=%d", provider, accountID, processed)
+}
+
+func isDataFile(file string) bool {
+	ext := strings.ToLower(filepath.Ext(file))
+	return ext == ".zip" || ext == ".csv" || ext == ".parquet"
+}
+
+// monthPrefixFromFile extracts the month directory from a FOCUS export path.
+// Expected layout: <prefix>/<YYYYMM>/<timestamp>/<filename>
+func monthPrefixFromFile(prefix, file string) string {
+	dir := filepath.Dir(file)
+	// Remove the trailing timestamp directory to keep prefix/YYYYMM.
+	monthDir := filepath.Dir(dir)
+	if monthDir == "." || monthDir == "/" {
+		return ""
+	}
+	// Ensure the month directory starts with the configured prefix.
+	if !strings.HasPrefix(monthDir, strings.TrimSuffix(prefix, "/")) {
+		return ""
+	}
+	month := filepath.Base(monthDir)
+	if len(month) != 6 {
+		return ""
+	}
+	if _, err := strconv.Atoi(month); err != nil {
+		return ""
+	}
+	return monthDir
 }
 
 func (s *IngestionService) parseObject(filename, provider string, reader io.Reader) ([]FocusRecord, error) {
