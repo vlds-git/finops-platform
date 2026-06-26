@@ -392,7 +392,7 @@ func (s *CostAnalyticsService) insertRawCostBatch(ctx context.Context, records [
 			rec.ListCost, math.Round(rec.ListCost*rate*100)/100,
 			rec.ContractedCost, math.Round(rec.ContractedCost*rate*100)/100,
 			rec.AmortizedCost, math.Round(rec.AmortizedCost*rate*100)/100,
-			rec.Date, rec.ChargeType, rec.Environment, rec.Application, rec.BusinessUnit, normalizedTags,
+			rec.Date, rec.Environment, rec.Application, rec.BusinessUnit, rec.ChargeType, normalizedTags,
 		); err != nil {
 			return fmt.Errorf("append batch: %w", err)
 		}
