@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS finops.costs_raw (
     amortized_cost Float64,
     amortized_cost_brl Float64,
     date Date,
+    charge_type String,
     environment String,
     application String,
     business_unit String,
@@ -219,6 +220,7 @@ CREATE TABLE IF NOT EXISTS finops.costs_raw (
 ORDER BY (provider, date, service_name)
 PARTITION BY toYYYYMM(date)
 TTL date + INTERVAL 36 MONTH;
+ALTER TABLE finops.costs_raw ADD COLUMN IF NOT EXISTS charge_type String AFTER business_unit;
 
 CREATE TABLE IF NOT EXISTS finops.costs_daily (
     provider String,
@@ -388,7 +390,7 @@ func (s *CostAnalyticsService) insertRawCostBatch(ctx context.Context, records [
 			rec.ListCost, math.Round(rec.ListCost*rate*100)/100,
 			rec.ContractedCost, math.Round(rec.ContractedCost*rate*100)/100,
 			rec.AmortizedCost, math.Round(rec.AmortizedCost*rate*100)/100,
-			rec.Date, rec.Environment, rec.Application, rec.BusinessUnit, normalizedTags,
+			rec.Date, rec.ChargeType, rec.Environment, rec.Application, rec.BusinessUnit, normalizedTags,
 		); err != nil {
 			return fmt.Errorf("append batch: %w", err)
 		}
@@ -445,6 +447,51 @@ func currencyColumn(c *gin.Context, usdCol, brlCol string) string {
 	return usdCol
 }
 
+// costMetricBaseColumn returns the base SQL column/expression for the requested cost metric.
+// Supported metrics: effective (default), gross, amortized, list, contracted.
+// "gross" matches Huawei console behaviour: Usage + Purchase + Tax before credits.
+func costMetricBaseColumn(c *gin.Context, usdCol, brlCol string) string {
+	metric := strings.ToLower(c.DefaultQuery("cost_metric", "effective"))
+	isBRL := strings.ToUpper(c.DefaultQuery("currency", "USD")) == "BRL"
+	col := usdCol
+	if isBRL {
+		col = brlCol
+	}
+	switch metric {
+	case "gross":
+		return fmt.Sprintf("if(charge_type IN ('Usage', 'Purchase', 'Tax'), %s, 0)", col)
+	case "amortized":
+		return amortizedCostColumn(c)
+	case "list":
+		return listCostColumn(c)
+	case "contracted":
+		return contractedCostColumn(c)
+	default:
+		return col
+	}
+}
+
+// costMetricColumn returns an aggregate SQL expression for the requested cost metric.
+func costMetricColumn(c *gin.Context, usdCol, brlCol string) string {
+	base := costMetricBaseColumn(c, usdCol, brlCol)
+	if strings.HasPrefix(base, "if(") {
+		return fmt.Sprintf("sum(%s)", base)
+	}
+	return fmt.Sprintf("sum(%s)", base)
+}
+
+func amortizedCostColumn(c *gin.Context) string {
+	return currencyColumn(c, "amortized_cost", "amortized_cost_brl")
+}
+
+func listCostColumn(c *gin.Context) string {
+	return currencyColumn(c, "list_cost", "list_cost_brl")
+}
+
+func contractedCostColumn(c *gin.Context) string {
+	return currencyColumn(c, "contracted_cost", "contracted_cost_brl")
+}
+
 func dateRangeFromQuery(c *gin.Context) (start string, end string) {
 	start = c.Query("start_date")
 	end = c.Query("end_date")
@@ -463,16 +510,17 @@ func (s *CostAnalyticsService) getCosts(c *gin.Context) {
 	start := c.Query("start_date")
 	end := c.Query("end_date")
 	provider := c.Query("provider")
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
-	amortizedCol := currencyColumn(c, "amortized_cost", "amortized_cost_brl")
-	listCol := currencyColumn(c, "list_cost", "list_cost_brl")
 
 	if start == "" || end == "" {
 		start = time.Now().AddDate(0, 0, -30).Format("2006-01-02")
 		end = time.Now().Format("2006-01-02")
 	}
 
-	query := fmt.Sprintf(`SELECT sum(%s), sum(%s), sum(%s), uniqExact(service_name), uniqExact(resource_id) FROM costs_raw WHERE date BETWEEN ? AND ?`, costCol, amortizedCol, listCol)
+	totalExpr := costMetricColumn(c, "effective_cost", "effective_cost_brl")
+	amortizedExpr := fmt.Sprintf("sum(%s)", amortizedCostColumn(c))
+	listExpr := fmt.Sprintf("sum(%s)", listCostColumn(c))
+
+	query := fmt.Sprintf(`SELECT %s, %s, %s, uniqExact(service_name), uniqExact(resource_id) FROM costs_raw WHERE date BETWEEN ? AND ?`, totalExpr, amortizedExpr, listExpr)
 	args := []interface{}{start, end}
 	if provider != "" {
 		query += " AND provider = ?"
@@ -511,7 +559,7 @@ func derefUint64(v *uint64) uint64 {
 
 func (s *CostAnalyticsService) getTrends(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT date, sum(%s) as cost, sum(usage_quantity) as usage FROM costs_raw WHERE %s GROUP BY date ORDER BY date`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
@@ -538,7 +586,7 @@ func (s *CostAnalyticsService) getTrends(c *gin.Context) {
 
 func (s *CostAnalyticsService) getByService(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT service_name, sum(%s) as cost, sum(usage_quantity) as usage FROM costs_raw WHERE %s GROUP BY service_name ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
@@ -561,7 +609,7 @@ func (s *CostAnalyticsService) getByService(c *gin.Context) {
 
 func (s *CostAnalyticsService) getByApplication(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT application, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY application ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
@@ -584,7 +632,7 @@ func (s *CostAnalyticsService) getByApplication(c *gin.Context) {
 
 func (s *CostAnalyticsService) getByEnvironment(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT environment, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY environment ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
@@ -607,7 +655,7 @@ func (s *CostAnalyticsService) getByEnvironment(c *gin.Context) {
 
 func (s *CostAnalyticsService) getByBusinessUnit(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT business_unit, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY business_unit ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
@@ -630,7 +678,7 @@ func (s *CostAnalyticsService) getByBusinessUnit(c *gin.Context) {
 
 func (s *CostAnalyticsService) getByRegion(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT region, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY region ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
@@ -653,7 +701,7 @@ func (s *CostAnalyticsService) getByRegion(c *gin.Context) {
 
 func (s *CostAnalyticsService) getByProvider(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT provider, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY provider ORDER BY cost DESC`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
@@ -676,7 +724,7 @@ func (s *CostAnalyticsService) getByProvider(c *gin.Context) {
 
 func (s *CostAnalyticsService) getKPIs(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	listCostCol := currencyColumn(c, "list_cost", "list_cost_brl")
 
 	total := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(start, end)))
@@ -739,7 +787,7 @@ func statusForTrend(trend float64) string {
 
 func (s *CostAnalyticsService) getExecutiveDashboard(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	listCostCol := currencyColumn(c, "list_cost", "list_cost_brl")
 	currency := strings.ToUpper(c.DefaultQuery("currency", "USD"))
 
@@ -791,7 +839,7 @@ func (s *CostAnalyticsService) computeCostEfficiency(costCol, listCostCol string
 
 func (s *CostAnalyticsService) getAnomalies(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 	query := fmt.Sprintf(`SELECT date, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY date ORDER BY date`, costCol, dateWhereClause(start, end))
 	rows, err := s.ch.Query(context.Background(), query)
 	if err != nil {
@@ -864,7 +912,7 @@ func (s *CostAnalyticsService) getAnomalies(c *gin.Context) {
 
 func (s *CostAnalyticsService) getForecast(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 
 	// Historical daily costs
 	query := fmt.Sprintf(`SELECT date, sum(%s) as cost FROM costs_raw WHERE %s GROUP BY date ORDER BY date`, costCol, dateWhereClause(start, end))
@@ -967,7 +1015,7 @@ func (s *CostAnalyticsService) getForecast(c *gin.Context) {
 
 func (s *CostAnalyticsService) getRecommendations(c *gin.Context) {
 	start, end := dateRangeFromQuery(c)
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 
 	totalCost := s.sumCost(fmt.Sprintf("SELECT sum(%s) FROM costs_raw WHERE %s", costCol, dateWhereClause(start, end)))
 
@@ -1044,7 +1092,7 @@ func (s *CostAnalyticsService) applyRecommendation(c *gin.Context) {
 }
 
 func (s *CostAnalyticsService) getOperationalDashboard(c *gin.Context) {
-	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	costCol := costMetricBaseColumn(c, "effective_cost", "effective_cost_brl")
 
 	byService, _ := s.queryTop(fmt.Sprintf("SELECT service_name, sum(%s) FROM costs_raw WHERE date >= today() - 30 GROUP BY service_name ORDER BY sum(%s) DESC LIMIT 10", costCol, costCol))
 	byEnv, _ := s.queryTop(fmt.Sprintf("SELECT environment, sum(%s) FROM costs_raw WHERE date >= today() - 30 GROUP BY environment ORDER BY sum(%s) DESC LIMIT 10", costCol, costCol))
