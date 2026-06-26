@@ -441,13 +441,15 @@ func (s *CostAnalyticsService) getCosts(c *gin.Context) {
 	end := c.Query("end_date")
 	provider := c.Query("provider")
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	amortizedCol := currencyColumn(c, "amortized_cost", "amortized_cost_brl")
+	listCol := currencyColumn(c, "list_cost", "list_cost_brl")
 
 	if start == "" || end == "" {
 		start = time.Now().AddDate(0, 0, -30).Format("2006-01-02")
 		end = time.Now().Format("2006-01-02")
 	}
 
-	query := fmt.Sprintf(`SELECT sum(%s), sum(amortized_cost), sum(list_cost), uniqExact(service_name), uniqExact(resource_id) FROM costs_raw WHERE date BETWEEN ? AND ?`, costCol)
+	query := fmt.Sprintf(`SELECT sum(%s), sum(%s), sum(%s), uniqExact(service_name), uniqExact(resource_id) FROM costs_raw WHERE date BETWEEN ? AND ?`, costCol, amortizedCol, listCol)
 	args := []interface{}{start, end}
 	if provider != "" {
 		query += " AND provider = ?"
