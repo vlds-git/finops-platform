@@ -356,7 +356,8 @@ func (s *CostAnalyticsService) flushKafkaBatch(ctx context.Context, batch *[]kaf
 }
 
 func (s *CostAnalyticsService) insertRawCostBatch(ctx context.Context, records []FocusRecord) error {
-	batch, err := s.ch.PrepareBatch(ctx, "INSERT INTO costs_raw")
+	columns := "provider, billing_account_id, service_name, resource_type, resource_id, region, usage_quantity, usage_unit, effective_cost, effective_cost_brl, list_cost, list_cost_brl, contracted_cost, contracted_cost_brl, amortized_cost, amortized_cost_brl, date, environment, application, business_unit, charge_type, tags"
+	batch, err := s.ch.PrepareBatch(ctx, "INSERT INTO costs_raw ("+columns+")")
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
 	}
