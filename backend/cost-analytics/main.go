@@ -161,6 +161,7 @@ func main() {
 	api.PUT("/admin/users/:id", svc.updateUser)
 	api.DELETE("/admin/users/:id", svc.deleteUser)
 	api.GET("/admin/audit", svc.getAudit)
+	api.POST("/admin/truncate-dates", svc.truncateDates)
 
 	port := getEnv("PORT", "8082")
 	log.Printf("Cost Analytics starting on port %s", port)
@@ -353,36 +354,6 @@ func (s *CostAnalyticsService) flushKafkaBatch(ctx context.Context, batch *[]kaf
 }
 
 func (s *CostAnalyticsService) insertRawCostBatch(ctx context.Context, records []FocusRecord) error {
-	if len(records) == 0 {
-		return nil
-	}
-
-	// FOCUS exports are cumulative and the latest export for a month can also
-	// contain corrections for previous months (e.g. day 31 of the previous month).
-	// To avoid overlapping records, delete any existing rows for the dates that
-	// are about to be inserted, scoped to provider and billing account.
-	dateSet := make(map[string]struct{})
-	provider := records[0].Provider
-	accountID := records[0].BillingAccountID
-	for _, rec := range records {
-		dateSet[rec.Date] = struct{}{}
-	}
-	dates := make([]string, 0, len(dateSet))
-	for d := range dateSet {
-		dates = append(dates, d)
-	}
-	sort.Strings(dates)
-
-	dateList := "'" + strings.Join(dates, "','") + "'"
-	deleteQuery := fmt.Sprintf(
-		"ALTER TABLE finops.costs_raw DELETE WHERE provider = '%s' AND billing_account_id = '%s' AND date IN (%s)",
-		provider, accountID, dateList,
-	)
-	if err := s.ch.Exec(ctx, deleteQuery); err != nil {
-		log.Printf("[KAFKA] Date cleanup before insert failed: %v", err)
-		// Continue with insert; duplicate logic below will still help.
-	}
-
 	batch, err := s.ch.PrepareBatch(ctx, "INSERT INTO costs_raw")
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
@@ -1351,6 +1322,44 @@ func (s *CostAnalyticsService) getAudit(c *gin.Context) {
 	}
 	rows.Close()
 	c.JSON(http.StatusOK, audits)
+}
+
+type TruncateDatesRequest struct {
+	Provider        string   `json:"provider" binding:"required"`
+	AccountID       string   `json:"account_id" binding:"required"`
+	Dates           []string `json:"dates" binding:"required"`
+}
+
+func (s *CostAnalyticsService) truncateDates(c *gin.Context) {
+	var req TruncateDatesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.Dates) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dates is required"})
+		return
+	}
+
+	// Validate date format to prevent injection.
+	for _, d := range req.Dates {
+		if _, err := time.Parse("2006-01-02", d); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date: " + d})
+			return
+		}
+	}
+
+	dateList := "'" + strings.Join(req.Dates, "','") + "'"
+	query := fmt.Sprintf(
+		"ALTER TABLE finops.costs_raw DELETE WHERE provider = '%s' AND billing_account_id = '%s' AND date IN (%s)",
+		req.Provider, req.AccountID, dateList,
+	)
+	if err := s.ch.Exec(c.Request.Context(), query); err != nil {
+		log.Printf("[ADMIN] truncate dates failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "deleted_dates": req.Dates})
 }
 
 func healthHandler(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "healthy"}) }

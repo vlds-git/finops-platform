@@ -316,6 +316,16 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 			continue
 		}
 
+		// FOCUS exports are cumulative; the latest file for a month may also
+		// contain corrected rows for previous months (e.g. last day of the
+		// previous billing period). Delete existing rows for all dates present
+		// in this file before publishing, so the newest export always wins.
+		if err := s.truncateDatesBeforeIngestion(provider, accountID, records); err != nil {
+			log.Printf("[INGESTION] Failed to truncate existing dates: %v", err)
+			s.saveDLQ(provider, accountID, file, err.Error())
+			continue
+		}
+
 		log.Printf("[INGESTION] Publishing %d records to Kafka for month=%s", len(records), month)
 		batchSize := 1000
 		var messages []kafka.Message
@@ -363,6 +373,49 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 	}
 
 	log.Printf("[INGESTION] Completed for provider=%s account=%s processed=%d", provider, accountID, processed)
+}
+
+func (s *IngestionService) truncateDatesBeforeIngestion(provider, accountID string, records []FocusRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	dateSet := make(map[string]struct{})
+	for _, rec := range records {
+		if rec.Date != "" {
+			dateSet[rec.Date] = struct{}{}
+		}
+	}
+	if len(dateSet) == 0 {
+		return nil
+	}
+	dates := make([]string, 0, len(dateSet))
+	for d := range dateSet {
+		dates = append(dates, d)
+	}
+	sort.Strings(dates)
+
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"provider":   provider,
+		"account_id": accountID,
+		"dates":      dates,
+	})
+	if err != nil {
+		return err
+	}
+
+	costAnalyticsURL := getEnv("COST_ANALYTICS_URL", "http://cost-analytics:8082")
+	url := costAnalyticsURL + "/api/v1/admin/truncate-dates"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("truncate request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("truncate returned %d: %s", resp.StatusCode, string(body))
+	}
+	log.Printf("[INGESTION] Truncated %d existing dates before ingestion", len(dates))
+	return nil
 }
 
 func isDataFile(file string) bool {
