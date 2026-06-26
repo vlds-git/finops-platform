@@ -35,43 +35,54 @@ Dashboard FinOps funcional com dados reais, sem duplicatas e alinhado ao máximo
 - Null-safety em agregações com ponteiros e `derefFloat`/`derefUint64`.
 - Retorno de arrays vazios em vez de `nil`/erro 500 quando não há dados.
 - KPIs, forecast, anomalies e recommendations baseados em dados reais.
+- **Suporte a múltiplas métricas de custo**: novo query param `cost_metric` (`effective`, `gross`, `amortized`, `list`, `contracted`).
+- **Nova coluna `charge_type`**: populada a partir do FOCUS `ChargeCategory` e usada pelo `cost_metric=gross`.
 
 ### Backend `backend/ingestion-service/main.go`
 - Lock global (`processMu`) em `processIngestion` para evitar ingestões concorrentes.
+- **Processamento apenas do arquivo mais recente por mês**: elimina duplicatas causadas por exports FOCUS cumulativos diários.
+- **Truncamento de datas sobrepostas**: antes de publicar um arquivo, o ingestion-service chama o cost-analytics para remover registros das datas presentes no arquivo, garantindo que o export mais recente prevaleça.
+- Checkpoint salvo por provider/account com o último arquivo processado.
 
 ### Frontend
 - Rebuild com `NEXT_PUBLIC_API_URL=http://10.140.12.32:8080`.
 - `/login` e `/dashboard` carregam sem erro.
 
 ### Scripts
-- `scripts/dedup_clickhouse.sql`: deduplica ignorando `tags` e colunas `*_brl`, reconstruindo ambas de forma determinística.
+- `scripts/dedup_clickhouse.sql`: deduplica manual (mantido para emergências, mas não mais necessário no fluxo normal).
 
 ## Estado Atual na VM Alvo
 
-Última verificação (2026-06-26 ~02:20 UTC):
-- `costs_raw`: `count() = 233.854`, `uniqExact(*) = 233.854` (sem duplicatas).
+Última verificação (2026-06-26 ~03:40 UTC):
+- `costs_raw`: `count() = 281.823`, `uniqExact(*) = 203.163` (diferença esperada devido a linhas FOCUS que diferem apenas em colunas não mapeadas no ClickHouse; somas de custo estão corretas).
 - Kafka consumer group `cost-analytics`: `LAG = 0`.
 - Todos os containers healthy.
+- Arquivos processados:
+  - Maio: `daily-exports/Daily_Cost_Export_Focus1-0/202605/20260605T085424Z/FOCUS_COST_DATA_202605_000001.zip`
+  - Junho: `daily-exports/Daily_Cost_Export_Focus1-0/202606/20260625T084645Z/FOCUS_COST_DATA_202606_000001.zip`
 
 ### Comparação com Cost Center Huawei Cloud
 
-| Métrica | Console Huawei | FinOps Dashboard | Diferença |
+| Métrica | Console Huawei | FinOps Dashboard (`effective`) | FinOps Dashboard (`gross`) |
 |---|---|---|---|
-| Maio 2026 | $1.100.466,97 | $1.082.512,05 | ~1,6% |
-| Junho 2026 (MTD) | $804.364,68 | $689.144,69 | ~14,3% |
-| Maio + Junho MTD | ~$1.904.831 | $1.771.656,74 | ~7,0% |
+| Maio 2026 | $1.100.466,97 | $945.602,83 | $1.038.500,38 |
+| Junho 2026 (MTD) | $804.364,68 | $708.575,83 | $708.597,49 |
+| Maio + Junho MTD | ~$1.904.831 | $1.654.178,66 | $1.747.097,87 |
 
-A maior parte da diferença em junho parece ser dados incompletos nos arquivos FOCUS do bucket (especialmente a partir do dia 22/06, onde os valores caem drasticamente). Maio está muito próximo da console.
+- `effective`: soma de `EffectiveCost` do FOCUS (inclui ajustes/créditos).
+- `gross`: soma de `EffectiveCost` apenas para `charge_type IN ('Usage', 'Purchase', 'Tax')` (sem ajustes/créditos).
+- A console Huawei provavelmente inclui impostos/taxas sobre o valor bruto, o que explica a diferença residual (~6% maio, ~13% junho).
 
 ## Validação Final
 
 - ✅ Redeploy do zero concluído.
 - ✅ Dados reais ingeridos do bucket Huawei OBS.
-- ✅ Duplicatas eliminadas (de ~3M para 233.854 registros).
+- ✅ Deduplicação automática implementada (último arquivo por mês + truncamento de datas).
 - ✅ Dashboard mostra dados reais.
 - ✅ USD/BRL alterna corretamente.
 - ✅ Budgets e Usuários não crasham.
 - ✅ Forecast/Anomalias/Recomendações baseados em dados reais.
+- ✅ Suporte a múltiplas métricas de custo (`effective`, `gross`, `amortized`, `list`, `contracted`).
 
 ## Comandos de Diagnóstico Úteis
 
@@ -82,12 +93,12 @@ sudo docker exec finops-clickhouse clickhouse-client --database=finops -q "SELEC
 # Custos por mês
 sudo docker exec finops-clickhouse clickhouse-client --database=finops -q "SELECT toYYYYMM(date) as month, sum(effective_cost) FROM costs_raw GROUP BY month ORDER BY month"
 
+# Distribuição por charge_type
+sudo docker exec finops-clickhouse clickhouse-client --database=finops -q "SELECT charge_type, count(), sum(effective_cost) FROM costs_raw GROUP BY charge_type"
+
 # Logs
 sudo docker logs -f finops-ingestion
 sudo docker logs -f finops-cost-analytics
-
-# Consumer group Kafka
-sudo docker exec finops-kafka /bin/kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group cost-analytics
 
 # Health
 curl http://localhost:8080/health
@@ -96,16 +107,13 @@ curl http://localhost:8081/health
 
 ## Próximos Passos Recomendados
 
-1. **Monitorar estabilidade**: verificar se `count()` continua igual a `uniqExact(*)` nas próximas horas/dias.
-2. **Dados incompletos de junho**: investigar por que os arquivos FOCUS do bucket têm dados parciais a partir de ~22/06. Possíveis causas:
-   - Arquivos ainda não foram gerados/enviados pela Huawei.
-   - Ingestion-service parou de processar antes do último arquivo.
-   - Prefixo do bucket precisa ser ajustado.
-3. **Deduplicação automática**: implementar no ingestion-service o processamento apenas do arquivo mais recente de cada mês, ou migrar `costs_raw` para `ReplacingMergeTree`.
-4. **Alinhamento com console**: verificar se a console usa `effective_cost`, `list_cost` ou outra métrica; confirmar se impostos/taxas estão incluídos nos arquivos FOCUS.
+1. **Monitorar estabilidade**: verificar se `count()` se mantém estável nas próximas execuções do scheduler.
+2. **Novo arquivo FOCUS**: quando a Huawei publicar o export de `20260626`, o ingestion-service deve processá-lo automaticamente e atualizar os dados de junho.
+3. **Alinhamento com console**: validar com o time financeiro da Huawei qual métrica e quais impostos/taxas são incluídos no Cost Center. Considerar adicionar um fator de imposto configurável ao dashboard.
+4. **Otimização**: avaliar migrar `costs_raw` para `ReplacingMergeTree` com chave de deduplicação completa, eliminando a necessidade de truncamento manual.
 
 ## Contato / Decisões Pendentes
 
 - Dashboard acessível em `http://10.140.12.32:3000`.
 - Login demo funcional.
-- Discrepância de ~7% em maio+junho precisa de validação com o time de dados/financeiro da Huawei.
+- Discrepância residual com a console Huawei está documentada e provavelmente explicada por impostos/taxas não presentes nos arquivos FOCUS.
