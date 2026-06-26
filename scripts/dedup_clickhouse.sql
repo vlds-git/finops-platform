@@ -1,4 +1,8 @@
 -- Deduplica costs_raw removendo registros exatamente iguais.
+-- Normaliza a coluna tags (Map) para ordem fixa e reconstrói as colunas
+-- *_brl a partir das colunas USD e da taxa USD_TO_BRL_RATE (5.15),
+-- pois pequenas diferenças de arredondamento nessas colunas impedem a
+-- identificação correta de duplicatas.
 -- Executar dentro do container clickhouse via:
 -- clickhouse-client --database=finops --multiquery < dedup_clickhouse.sql
 
@@ -28,9 +32,31 @@ CREATE TABLE IF NOT EXISTS finops.costs_raw_dedup (
 ORDER BY (provider, date, service_name)
 PARTITION BY toYYYYMM(date);
 
--- Inserir apenas registros distintos
+-- Inserir apenas registros distintos (ignorando tags e colunas *_brl),
+-- reconstruindo tags e colunas BRL de forma determinística.
 INSERT INTO finops.costs_raw_dedup
-SELECT DISTINCT *
+SELECT DISTINCT
+    provider,
+    billing_account_id,
+    service_name,
+    resource_type,
+    resource_id,
+    region,
+    usage_quantity,
+    usage_unit,
+    effective_cost,
+    round(effective_cost * 5.15, 2),
+    list_cost,
+    round(list_cost * 5.15, 2),
+    contracted_cost,
+    round(contracted_cost * 5.15, 2),
+    amortized_cost,
+    round(amortized_cost * 5.15, 2),
+    date,
+    environment,
+    application,
+    business_unit,
+    map('application', application, 'business_unit', business_unit, 'environment', environment)
 FROM finops.costs_raw;
 
 -- Trocar as tabelas atomicamente

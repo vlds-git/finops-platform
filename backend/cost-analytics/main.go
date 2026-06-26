@@ -361,11 +361,33 @@ func (s *CostAnalyticsService) insertRawCostBatch(ctx context.Context, records [
 		if rec.Tags == nil {
 			rec.Tags = map[string]string{}
 		}
+		// Normalize tag values into dedicated columns if they are empty.
+		if rec.Environment == "" && rec.Tags["environment"] != "" {
+			rec.Environment = rec.Tags["environment"]
+		}
+		if rec.Application == "" && rec.Tags["application"] != "" {
+			rec.Application = rec.Tags["application"]
+		}
+		if rec.BusinessUnit == "" && rec.Tags["business_unit"] != "" {
+			rec.BusinessUnit = rec.Tags["business_unit"]
+		}
+		// Build tags in a fixed order so duplicates are detected correctly by ClickHouse.
+		normalizedTags := map[string]string{
+			"application":   rec.Application,
+			"business_unit": rec.BusinessUnit,
+			"environment":   rec.Environment,
+		}
+		// Recalculate BRL columns deterministically to avoid floating-point drift
+		// that breaks duplicate detection.
+		rate := getEnvFloat("USD_TO_BRL_RATE", 5.15)
 		if err := batch.Append(
 			rec.Provider, rec.BillingAccountID, rec.ServiceName, rec.ResourceType, rec.ResourceID, rec.Region,
-			rec.UsageQuantity, rec.UsageUnit, rec.EffectiveCost, rec.EffectiveCostBRL, rec.ListCost, rec.ListCostBRL,
-			rec.ContractedCost, rec.ContractedCostBRL, rec.AmortizedCost, rec.AmortizedCostBRL,
-			rec.Date, rec.Environment, rec.Application, rec.BusinessUnit, rec.Tags,
+			rec.UsageQuantity, rec.UsageUnit,
+			rec.EffectiveCost, math.Round(rec.EffectiveCost*rate*100)/100,
+			rec.ListCost, math.Round(rec.ListCost*rate*100)/100,
+			rec.ContractedCost, math.Round(rec.ContractedCost*rate*100)/100,
+			rec.AmortizedCost, math.Round(rec.AmortizedCost*rate*100)/100,
+			rec.Date, rec.Environment, rec.Application, rec.BusinessUnit, normalizedTags,
 		); err != nil {
 			return fmt.Errorf("append batch: %w", err)
 		}
