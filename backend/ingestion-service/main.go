@@ -327,6 +327,10 @@ func (s *IngestionService) processIngestion(provider, bucket, prefix, accountID 
 		}
 
 		log.Printf("[INGESTION] Publishing %d records to Kafka for month=%s", len(records), month)
+		if len(records) > 0 {
+			log.Printf("[INGESTION] First record sample: date=%s charge_type=%q service=%s cost=%.2f",
+				records[0].Date, records[0].ChargeType, records[0].ServiceName, records[0].EffectiveCost)
+		}
 		batchSize := 1000
 		var messages []kafka.Message
 		sent := 0
