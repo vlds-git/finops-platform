@@ -76,6 +76,7 @@ type FocusRecord struct {
 	AmortizedCost      float64           `json:"amortized_cost"`
 	AmortizedCostBRL   float64           `json:"amortized_cost_brl"`
 	Date               string            `json:"date"`
+	ChargeType         string            `json:"charge_type"`
 	Environment        string            `json:"environment"`
 	Application        string            `json:"application"`
 	BusinessUnit       string            `json:"business_unit"`
