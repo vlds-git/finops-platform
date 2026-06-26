@@ -114,6 +114,9 @@ func main() {
 		GroupID:     "cost-analytics",
 		StartOffset: kafka.LastOffset,
 		MaxWait:     1 * time.Second,
+		MinBytes:    1e3,
+		MaxBytes:    10e6,
+		MaxAttempts: 3,
 	})
 
 	svc := &CostAnalyticsService{pg: pg, ch: chConn, kafkaRdr: kafkaRdr}
@@ -286,54 +289,92 @@ ORDER BY (created_at, category);
 
 func (s *CostAnalyticsService) consumeKafka() {
 	ctx := context.Background()
+	const batchSize = 500
+	const flushInterval = 5 * time.Second
+
+	batch := make([]kafka.Message, 0, batchSize)
+	records := make([]FocusRecord, 0, batchSize)
+	flushTimer := time.NewTimer(flushInterval)
+	defer flushTimer.Stop()
+
 	for {
-		msg, err := s.kafkaRdr.ReadMessage(ctx)
-		if err != nil {
-			log.Printf("[KAFKA] Read error: %v", err)
-			continue
-		}
-
-		var rec FocusRecord
-		if err := json.Unmarshal(msg.Value, &rec); err != nil {
-			log.Printf("[KAFKA] Unmarshal error: %v", err)
-			// Commit invalid messages so they are not reprocessed indefinitely.
-			if cErr := s.kafkaRdr.CommitMessages(ctx, msg); cErr != nil {
-				log.Printf("[KAFKA] Commit error: %v", cErr)
+		select {
+		case <-flushTimer.C:
+			if len(batch) > 0 {
+				s.flushKafkaBatch(ctx, &batch, &records)
 			}
-			continue
-		}
+			flushTimer.Reset(flushInterval)
+		default:
+			msg, err := s.kafkaRdr.ReadMessage(ctx)
+			if err != nil {
+				log.Printf("[KAFKA] Read error: %v", err)
+				continue
+			}
 
-		if err := s.insertRawCost(ctx, rec); err != nil {
-			log.Printf("[KAFKA] ClickHouse insert error: %v", err)
-			continue
-		}
+			var rec FocusRecord
+			if err := json.Unmarshal(msg.Value, &rec); err != nil {
+				log.Printf("[KAFKA] Unmarshal error: %v", err)
+				if cErr := s.kafkaRdr.CommitMessages(ctx, msg); cErr != nil {
+					log.Printf("[KAFKA] Commit error: %v", cErr)
+				}
+				continue
+			}
 
-		if err := s.kafkaRdr.CommitMessages(ctx, msg); err != nil {
-			log.Printf("[KAFKA] Commit error: %v", err)
-			continue
+			batch = append(batch, msg)
+			records = append(records, rec)
+
+			if len(batch) >= batchSize {
+				s.flushKafkaBatch(ctx, &batch, &records)
+				flushTimer.Reset(flushInterval)
+			}
 		}
-		log.Printf("[KAFKA] Persisted record: %s/%s/%s", rec.Provider, rec.ServiceName, rec.Date)
 	}
 }
 
-func (s *CostAnalyticsService) insertRawCost(ctx context.Context, rec FocusRecord) error {
-	if rec.Tags == nil {
-		rec.Tags = map[string]string{}
+func (s *CostAnalyticsService) flushKafkaBatch(ctx context.Context, batch *[]kafka.Message, records *[]FocusRecord) {
+	if len(*records) == 0 {
+		return
 	}
-	query := `
-		INSERT INTO costs_raw (
-			provider, billing_account_id, service_name, resource_type, resource_id, region,
-			usage_quantity, usage_unit, effective_cost, effective_cost_brl, list_cost, list_cost_brl,
-			contracted_cost, contracted_cost_brl, amortized_cost, amortized_cost_brl,
-			date, environment, application, business_unit, tags
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-	return s.ch.AsyncInsert(ctx, query, false,
-		rec.Provider, rec.BillingAccountID, rec.ServiceName, rec.ResourceType, rec.ResourceID, rec.Region,
-		rec.UsageQuantity, rec.UsageUnit, rec.EffectiveCost, rec.EffectiveCostBRL, rec.ListCost, rec.ListCostBRL,
-		rec.ContractedCost, rec.ContractedCostBRL, rec.AmortizedCost, rec.AmortizedCostBRL,
-		rec.Date, rec.Environment, rec.Application, rec.BusinessUnit, rec.Tags,
-	)
+
+	if err := s.insertRawCostBatch(ctx, *records); err != nil {
+		log.Printf("[KAFKA] ClickHouse batch insert error: %v", err)
+		return
+	}
+
+	if err := s.kafkaRdr.CommitMessages(ctx, *batch...); err != nil {
+		log.Printf("[KAFKA] Commit error: %v", err)
+		return
+	}
+
+	log.Printf("[KAFKA] Persisted batch of %d records", len(*records))
+	*batch = (*batch)[:0]
+	*records = (*records)[:0]
+}
+
+func (s *CostAnalyticsService) insertRawCostBatch(ctx context.Context, records []FocusRecord) error {
+	batch, err := s.ch.PrepareBatch(ctx, "INSERT INTO costs_raw")
+	if err != nil {
+		return fmt.Errorf("prepare batch: %w", err)
+	}
+
+	for _, rec := range records {
+		if rec.Tags == nil {
+			rec.Tags = map[string]string{}
+		}
+		if err := batch.Append(
+			rec.Provider, rec.BillingAccountID, rec.ServiceName, rec.ResourceType, rec.ResourceID, rec.Region,
+			rec.UsageQuantity, rec.UsageUnit, rec.EffectiveCost, rec.EffectiveCostBRL, rec.ListCost, rec.ListCostBRL,
+			rec.ContractedCost, rec.ContractedCostBRL, rec.AmortizedCost, rec.AmortizedCostBRL,
+			rec.Date, rec.Environment, rec.Application, rec.BusinessUnit, rec.Tags,
+		); err != nil {
+			return fmt.Errorf("append batch: %w", err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("send batch: %w", err)
+	}
+	return nil
 }
 
 func (s *CostAnalyticsService) runDailyAggregator() {
@@ -400,13 +441,15 @@ func (s *CostAnalyticsService) getCosts(c *gin.Context) {
 	end := c.Query("end_date")
 	provider := c.Query("provider")
 	costCol := currencyColumn(c, "effective_cost", "effective_cost_brl")
+	amortizedCol := currencyColumn(c, "amortized_cost", "amortized_cost_brl")
+	listCol := currencyColumn(c, "list_cost", "list_cost_brl")
 
 	if start == "" || end == "" {
 		start = time.Now().AddDate(0, 0, -30).Format("2006-01-02")
 		end = time.Now().Format("2006-01-02")
 	}
 
-	query := fmt.Sprintf(`SELECT sum(%s), sum(amortized_cost), sum(list_cost), uniqExact(service_name), uniqExact(resource_id) FROM costs_raw WHERE date BETWEEN ? AND ?`, costCol)
+	query := fmt.Sprintf(`SELECT sum(%s), sum(%s), sum(%s), uniqExact(service_name), uniqExact(resource_id) FROM costs_raw WHERE date BETWEEN ? AND ?`, costCol, amortizedCol, listCol)
 	args := []interface{}{start, end}
 	if provider != "" {
 		query += " AND provider = ?"
@@ -456,10 +499,13 @@ func (s *CostAnalyticsService) getTrends(c *gin.Context) {
 
 	var results []gin.H
 	for rows.Next() {
-		var date string
+		var date time.Time
 		var cost, usage float64
-		rows.Scan(&date, &cost, &usage)
-		results = append(results, gin.H{"date": date, "cost": cost, "usage": usage})
+		if err := rows.Scan(&date, &cost, &usage); err != nil {
+			log.Printf("[TRENDS] Scan error: %v", err)
+			continue
+		}
+		results = append(results, gin.H{"date": date.Format("2006-01-02"), "cost": cost, "usage": usage})
 	}
 	if results == nil {
 		results = []gin.H{}
@@ -732,14 +778,17 @@ func (s *CostAnalyticsService) getAnomalies(c *gin.Context) {
 	defer rows.Close()
 
 	type point struct {
-		date string
+		date time.Time
 		cost float64
 	}
 	var points []point
 	var total float64
 	for rows.Next() {
 		var p point
-		rows.Scan(&p.date, &p.cost)
+		if err := rows.Scan(&p.date, &p.cost); err != nil {
+			log.Printf("[ANOMALIES] Scan error: %v", err)
+			continue
+		}
 		points = append(points, p)
 		total += p.cost
 	}
@@ -767,7 +816,7 @@ func (s *CostAnalyticsService) getAnomalies(c *gin.Context) {
 				severity = "high"
 			}
 			anomalies = append(anomalies, gin.H{
-				"date":       p.date,
+				"date":       p.date.Format("2006-01-02"),
 				"value":      p.cost,
 				"expected":   mean,
 				"deviation":  z,
@@ -804,14 +853,17 @@ func (s *CostAnalyticsService) getForecast(c *gin.Context) {
 	defer rows.Close()
 
 	type point struct {
-		date  string
+		date  time.Time
 		value float64
 	}
 	var history []point
 	var total float64
 	for rows.Next() {
 		var p point
-		rows.Scan(&p.date, &p.value)
+		if err := rows.Scan(&p.date, &p.value); err != nil {
+			log.Printf("[FORECAST] Scan error: %v", err)
+			continue
+		}
 		history = append(history, p)
 		total += p.value
 	}
@@ -845,7 +897,7 @@ func (s *CostAnalyticsService) getForecast(c *gin.Context) {
 
 	lastDate := time.Now()
 	if len(history) > 0 {
-		lastDate, _ = time.Parse("2006-01-02", history[len(history)-1].date)
+		lastDate = history[len(history)-1].date
 	}
 
 	var forecast []gin.H
