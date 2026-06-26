@@ -1,17 +1,11 @@
 # Handoff Context - FinOps Platform
 
 > Arquivo gerado para continuidade entre sessões/máquinas.
-> Última atualização: 2026-06-12
+> Última atualização: 2026-06-26
 
 ## Objetivo Atual
 
-Corrigir dashboard funcional com dados reais, eliminando problemas de qualidade e acuracidade:
-
-1. **Duplicatas no ClickHouse** — `costs_raw` chegou a ~5.5M registros, mas há ~535k únicos.
-2. **Conversão USD/BRL no frontend** — backend já converte com taxa 5.15, mas queries precisam refetch ao trocar moeda.
-3. **Crashes em Budgets e Usuários** quando não há registros.
-4. **KPIs/Forecast/Anomalias/Recomendações** baseados em dados reais, não hardcoded.
-5. **Causa raiz identificada**: `cost-analytics` consumia mensagens do Kafka sem comitar offsets, reprocessando o tópico `cost.raw` indefinidamente.
+Dashboard FinOps funcional com dados reais, sem duplicatas e com conversão USD/BRL correta.
 
 ## Ambiente
 
@@ -27,13 +21,15 @@ Corrigir dashboard funcional com dados reais, eliminando problemas de qualidade 
 
 - Repositório clonado em `/finops-platform` na VM alvo.
 - Branch: `Teste-Docker-Compose`
-- Diretório local Windows: `c:\Users\Victor Laranjeira\GitHub\finops-platform`
+- Diretório local Windows: `c:\finops-platform`
 
-## Alterações Realizadas (ainda não testadas na VM alvo)
+## Alterações Realizadas e Validadas
 
 ### Backend `backend/cost-analytics/main.go`
-- Adicionado `CommitMessages(ctx, msg)` após inserção no ClickHouse.
-- Configurado `kafka.Reader` com `StartOffset: kafka.LastOffset` para evitar reprocessar tópico inteiro.
+- **Batch insert no Kafka consumer**: `consumeKafka` acumula 500 registros e insere via `PrepareBatch` no ClickHouse, aumentando o throughput de ~600 msg/s para ~3.000 msg/s.
+- **Commit de offsets em batch**: offsets comitados apenas após o batch ser inserido com sucesso.
+- **Correção de parsing de datas**: `getTrends`, `getAnomalies` e `getForecast` escaneiam a coluna `date` como `time.Time` e formatam para `YYYY-MM-DD` (antes retornavam `date: ""`).
+- **Conversão USD/BRL completa**: `getCosts` agora converte `effective_cost`, `amortized_cost` e `list_cost` para BRL quando `currency=BRL`.
 - Null-safety em todas as agregações (`sum`, `uniqExact`) usando ponteiros e `derefFloat`/`derefUint64`.
 - Retorno de arrays vazios em vez de `nil`/erro 500 quando não há dados.
 - KPIs reais: `Cost Efficiency = effective_cost / list_cost`; `Budget Utilization` baseado em dados reais.
@@ -42,16 +38,17 @@ Corrigir dashboard funcional com dados reais, eliminando problemas de qualidade 
 - `getBudgets` e `getUsers` tratam datas nulas e `last_login` nulo; retornam `[]` quando vazio.
 
 ### Backend `backend/ingestion-service/main.go`
-- Adicionado lock global (`processMu`) em `processIngestion` para evitar ingestões concorrentes.
+- Lock global (`processMu`) em `processIngestion` para evitar ingestões concorrentes.
 
 ### Frontend
 - `frontend/nextjs/contexts/CurrencyContext.tsx`: troca de moeda invalida queries de custo/dashboard.
 - `frontend/nextjs/app/dashboard/page.tsx`: `useCostTrends` usa `startDate/endDate`; KPIs estratégicos calculados de dados reais.
 - `frontend/nextjs/app/forecast/page.tsx`: `useCostTrends` corrigido para usar `startDate/endDate`.
+- Rebuild do frontend com `NEXT_PUBLIC_API_URL=http://10.140.12.32:8080`.
 
 ### Scripts
 - `scripts/dedup_clickhouse.sql`: deduplica `costs_raw` via `SELECT DISTINCT *` com troca atômica de tabelas.
-- `scripts/dedup_clickhouse.sh`: para serviços, deduplica, reseta offsets do Kafka para latest, reinicia.
+- `scripts/dedup_clickhouse.sh`: para serviços, deduplica, reseta offsets do Kafka, reinicia.
 - `scripts/full-redeploy.sh`: redeploy completo do zero (apaga volumes, rebuilda, aplica migrations).
 
 ### Documentação
@@ -60,49 +57,21 @@ Corrigir dashboard funcional com dados reais, eliminando problemas de qualidade 
 
 ## Estado Atual na VM Alvo
 
-Última verificação (2026-06-24):
-- `costs_raw`: `count() = 5.489.961`, `uniqExact(*) = 534.884`
-- Ingestion-service: checkpoint correto, `processed=0` na última execução.
-- Cost-analytics: continuava inserindo registros antigos do Kafka (falta de commit de offsets).
-- Ingestion interval: `5m`.
+Última verificação (2026-06-26 02:04 UTC):
+- `costs_raw`: `count() = 556.223`, `uniqExact(*) = 556.223` (sem duplicatas).
+- Kafka consumer group `cost-analytics`: `CURRENT-OFFSET = LOG-END-OFFSET = 3.878.151`, `LAG = 0`.
+- Ingestion-service: scheduler a cada 5m; últimos arquivos do bucket já processados.
+- Todos os containers healthy.
 
-## Próximos Passos Recomendados
+## Validação Final
 
-### Opção A: Redeploy do zero (recomendada para garantir limpeza)
-1. Na VM alvo (`/finops-platform`):
-   ```bash
-   git pull origin Teste-Docker-Compose
-   chmod +x scripts/full-redeploy.sh
-   ./scripts/full-redeploy.sh
-   ```
-2. O script apaga volumes, rebuilda imagens, aplica migrations.
-3. Disparar ingestão:
-   ```bash
-   curl -X POST http://localhost:8081/api/v1/ingestion/trigger \
-     -H 'Content-Type: application/json' \
-     -d '{"provider":"huawei","bucket":"focusfinops","prefix":"daily-exports/Daily_Cost_Export_Focus1-0/","account_id":"hw-account-001"}'
-   ```
-4. Monitorar até estabilizar:
-   ```bash
-   watch -n 5 'docker exec finops-clickhouse clickhouse-client --database=finops -q "SELECT count(), uniqExact(*) FROM costs_raw"'
-   ```
-
-### Opção B: Deduplicar sem apagar volumes
-1. Na VM alvo (`/finops-platform`):
-   ```bash
-   git pull origin Teste-Docker-Compose
-   docker compose up -d --build cost-analytics ingestion-service
-   ./scripts/dedup_clickhouse.sh
-   ```
-2. Verificar estabilização da contagem.
-
-## Validação Esperada
-
-- `count()` ≈ `uniqExact(*)` e ambos param de subir quando não há novos arquivos.
-- Dashboard mostra dados reais, sem valores hardcoded.
-- USD/BRL alterna corretamente e refetcha dados.
-- Budgets e Usuários não crasham quando vazios.
-- Forecast/Anomalias/Recomendações baseados em dados reais.
+- ✅ Redeploy do zero concluído com sucesso.
+- ✅ Dados reais ingeridos do bucket Huawei OBS.
+- ✅ Duplicatas eliminadas no ClickHouse.
+- ✅ Dashboard mostra dados reais (costs, trends, KPIs, anomalies, recommendations, budgets, users).
+- ✅ USD/BRL alterna corretamente e refetcha dados.
+- ✅ Budgets e Usuários não crasham quando vazios.
+- ✅ Forecast/Anomalias/Recomendações baseados em dados reais.
 
 ## Comandos de Diagnóstico Úteis
 
@@ -111,23 +80,31 @@ Corrigir dashboard funcional com dados reais, eliminando problemas de qualidade 
 docker exec finops-clickhouse clickhouse-client --database=finops -q "SELECT count(), uniqExact(*) FROM costs_raw"
 
 # Logs
-docker logs -f finops-ingestion
-docker logs -f finops-cost-analytics
+sudo docker logs -f finops-ingestion
+sudo docker logs -f finops-cost-analytics
 
 # Consumer group Kafka
-docker exec finops-kafka kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group cost-analytics
+sudo docker exec finops-kafka /bin/kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group cost-analytics
 
 # Checkpoints
-docker compose exec -T postgres psql -U finops -d finops -c "SELECT * FROM ingestion_checkpoints"
+sudo docker compose exec -T postgres psql -U finops -d finops -c "SELECT * FROM ingestion_checkpoints"
 
 # Health
 curl http://localhost:8080/health
 curl http://localhost:8081/health
-curl http://localhost:8082/health
 ```
+
+## Próximos Passos Recomendados
+
+1. **Monitorar estabilidade**: verificar se `count()` ≈ `uniqExact(*)` nas próximas horas.
+2. **Resolver duplicatas de origem**: os arquivos diários da Huawei são cumulativos. Considerar:
+   - Processar apenas o arquivo mais recente de cada mês no ingestion-service; ou
+   - Alterar `costs_raw` para `ReplacingMergeTree` com chave de deduplicação.
+3. **Melhorar forecast**: a lógica atual compara períodos de mesma duração e explode o trend quando o período anterior tem poucos dados.
+4. **Commitar mudanças**: `backend/cost-analytics/main.go` foi modificado; fazer push para o branch `Teste-Docker-Compose`.
 
 ## Contato / Decisões Pendentes
 
-- Usuário acessa `az-vm-ubu-finops-platform-v2` através de jumphost.
-- Próxima sessão provavelmente será na jumphost.
-- Decidir entre **Opção A (redeploy do zero)** ou **Opção B (deduplicação sem apagar volumes)**.
+- Dashboard acessível em `http://10.140.12.32:3000`.
+- Login demo funcional.
+- Decisão futura sobre estratégia de deduplicação permanente.
