@@ -497,10 +497,13 @@ func (s *CostAnalyticsService) getTrends(c *gin.Context) {
 
 	var results []gin.H
 	for rows.Next() {
-		var date string
+		var date time.Time
 		var cost, usage float64
-		rows.Scan(&date, &cost, &usage)
-		results = append(results, gin.H{"date": date, "cost": cost, "usage": usage})
+		if err := rows.Scan(&date, &cost, &usage); err != nil {
+			log.Printf("[TRENDS] Scan error: %v", err)
+			continue
+		}
+		results = append(results, gin.H{"date": date.Format("2006-01-02"), "cost": cost, "usage": usage})
 	}
 	if results == nil {
 		results = []gin.H{}
@@ -773,14 +776,17 @@ func (s *CostAnalyticsService) getAnomalies(c *gin.Context) {
 	defer rows.Close()
 
 	type point struct {
-		date string
+		date time.Time
 		cost float64
 	}
 	var points []point
 	var total float64
 	for rows.Next() {
 		var p point
-		rows.Scan(&p.date, &p.cost)
+		if err := rows.Scan(&p.date, &p.cost); err != nil {
+			log.Printf("[ANOMALIES] Scan error: %v", err)
+			continue
+		}
 		points = append(points, p)
 		total += p.cost
 	}
@@ -808,7 +814,7 @@ func (s *CostAnalyticsService) getAnomalies(c *gin.Context) {
 				severity = "high"
 			}
 			anomalies = append(anomalies, gin.H{
-				"date":       p.date,
+				"date":       p.date.Format("2006-01-02"),
 				"value":      p.cost,
 				"expected":   mean,
 				"deviation":  z,
@@ -845,14 +851,17 @@ func (s *CostAnalyticsService) getForecast(c *gin.Context) {
 	defer rows.Close()
 
 	type point struct {
-		date  string
+		date  time.Time
 		value float64
 	}
 	var history []point
 	var total float64
 	for rows.Next() {
 		var p point
-		rows.Scan(&p.date, &p.value)
+		if err := rows.Scan(&p.date, &p.value); err != nil {
+			log.Printf("[FORECAST] Scan error: %v", err)
+			continue
+		}
 		history = append(history, p)
 		total += p.value
 	}
@@ -886,7 +895,7 @@ func (s *CostAnalyticsService) getForecast(c *gin.Context) {
 
 	lastDate := time.Now()
 	if len(history) > 0 {
-		lastDate, _ = time.Parse("2006-01-02", history[len(history)-1].date)
+		lastDate = history[len(history)-1].date
 	}
 
 	var forecast []gin.H
